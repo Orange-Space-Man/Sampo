@@ -1,7 +1,9 @@
 #include <windows.h>
+#include "lua51.h"
 
 namespace {
     DWORD WINAPI Initialize(LPVOID) {
+        lua51::init();
         return 0;
     }
 }
@@ -14,5 +16,6 @@ BOOL APIENTRY DllMain( HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpRese
             CloseHandle(thread);
         }
     }
-}
 
+    return TRUE;
+}
