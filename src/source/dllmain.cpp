@@ -1,9 +1,13 @@
 #include <windows.h>
 #include "lua51.h"
+#include "sdl2.h"
+#include "log.h"
 
 namespace {
     DWORD WINAPI Initialize(LPVOID) {
+        sampo::log::write("Initializing Sampo..");
         lua51::init();
+        sdl2::init();
         return 0;
     }
 }

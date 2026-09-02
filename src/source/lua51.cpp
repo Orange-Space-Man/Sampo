@@ -4,12 +4,12 @@
 #include "memory.h"
 #include "lua51.h"
 #include <cstdint>
+#include "log.h"
 
 namespace lua51
 {
     struct lua_State;
-    struct lua_Debug
-    {
+    struct lua_Debug {
         int event;
         const char* name;
         const char* namewhat;
@@ -103,9 +103,16 @@ namespace lua51
     LuaTypeName f_typeName = nullptr;
 
     template <typename T>
-    T LuaExport(HMODULE module, const char* name)
-    {
-        return reinterpret_cast<T>(GetProcAddress(module, name));
+    T LuaExport(HMODULE module, const char* name) {
+        T exportedFunction = reinterpret_cast<T>(GetProcAddress(module, name));
+
+        if (exportedFunction == nullptr) {
+            sampo::log::write(" Could not find %s in lua51.dll module", name);
+        } else {
+            sampo::log::write("Found %s.. [%p]", name, exportedFunction);
+        }
+
+        return exportedFunction;
     }
 
     lua_State* __cdecl hookLNewState() {
@@ -147,8 +154,11 @@ namespace lua51
     }
 
     bool lua51::init() {
-        if (noita::lua51Base == nullptr)
+        sampo::log::write("Initializing lua51 hook..");
+        if (noita::lua51Base == nullptr) {
+            sampo::log::write("Lua51 hook failed: could not locate lua51.dll");
             return false;
+        }
 
         f_openLibs = LuaExport<LuaLOpenLibs>(noita::lua51Base, "luaL_openlibs");
         f_getTop = LuaExport<LuaGetTop>(noita::lua51Base, "lua_gettop");
@@ -179,6 +189,7 @@ namespace lua51
         f_toNumber = LuaExport<LuaToNumber>(noita::lua51Base, "lua_tonumber");
         f_typeName = LuaExport<LuaTypeName>(noita::lua51Base, "lua_typename");
 
+        sampo::log::write("Hooking lua functions");
         const bool newStateHooked = memory::hook_iat(noita::noitaBase, "lua51.dll", "luaL_newstate", reinterpret_cast<void*>(&hookLNewState), reinterpret_cast<void**>(&f_oNewState));
         const bool closeHooked = memory::hook_iat(noita::noitaBase, "lua51.dll", "lua_close", reinterpret_cast<void*>(&hookClose), reinterpret_cast<void**>(&f_oClose));
         const bool pcallHooked = memory::hook_iat(noita::noitaBase, "lua51.dll", "lua_pcall", reinterpret_cast<void*>(&hookPCall), reinterpret_cast<void**>(&f_oPCall));
@@ -187,9 +198,12 @@ namespace lua51
         const bool loadFileHooked = memory::hook_iat(noita::noitaBase, "lua51.dll", "luaL_loadfile", reinterpret_cast<void*>(&hookLoadFile), reinterpret_cast<void**>(&f_oLoadFile));
         const bool loadFileXHooked = memory::hook_iat(noita::noitaBase, "lua51.dll", "luaL_loadfilex", reinterpret_cast<void*>(&hookLoadFileX), reinterpret_cast<void**>(&f_oLoadFileX));
 
-        if (newStateHooked && closeHooked && pcallHooked && loadBufferHooked && loadStringHooked)
+        if (newStateHooked && closeHooked && pcallHooked && loadBufferHooked && loadStringHooked) {
+            sampo::log::write("Functions hooked successfully: /arrow luaL_newstate: %p /arrow lua_close: %p /arrow lua_pcall: %p /arrow luaL_loadbufferx: %p /arrow luaL_loadstring: %p /arrow luaL_loadfile: %p /arrow luaL_loadfilex: %p ",newStateHooked, closeHooked, pcallHooked, loadBufferHooked, loadStringHooked, loadFileHooked, loadFileXHooked);
             return true;
+        }
 
+        sampo::log::write("One or more mandatory functions failed to hook: /arrow luaL_newstate: %p /arrow lua_close: %p /arrow lua_pcall: %p /arrow luaL_loadbufferx: %p /arrow luaL_loadstring: %p /arrow luaL_loadfile: %p /arrow luaL_loadfilex: %p ", newStateHooked, closeHooked, pcallHooked, loadBufferHooked, loadStringHooked, loadFileHooked, loadFileXHooked);
         return false;
     }
 
