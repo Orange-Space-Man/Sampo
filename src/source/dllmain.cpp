@@ -1,5 +1,6 @@
 #include <windows.h>
 #include "lua51.h"
+#include "noita_mainmenu.h"
 #include "sdl2.h"
 #include "log.h"
 
@@ -8,6 +9,7 @@ namespace {
         sampo::log::write("Initializing Sampo..");
         lua51::init();
         sdl2::init();
+        noita_mainmenu::init();
         return 0;
     }
 }

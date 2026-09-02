@@ -3,12 +3,12 @@
 #include "noita.h"
 #include "memory.h"
 #include "lua51.h"
+#include "sampo_lua.h"
 #include <cstdint>
 #include "log.h"
 
 namespace lua51
 {
-    struct lua_State;
     struct lua_Debug {
         int event;
         const char* name;
@@ -32,6 +32,8 @@ namespace lua51
     using LuaLLoadString = int(__cdecl*)(lua_State*, const char*);
     using LuaLLoadFile = int(__cdecl*)(lua_State*, const char*);
     using LuaLLoadFileX = int(__cdecl*)(lua_State*, const char*, const char*);
+    using LuaCreateTable = void(__cdecl*)(lua_State*, int, int);
+    using LuaLError = int(__cdecl*)(lua_State*, const char*, ...);
     using LuaGetTop = int(__cdecl*)(lua_State*);
     using LuaSetTop = void(__cdecl*)(lua_State*, int);
     using LuaPushNil = void(__cdecl*)(lua_State*);
@@ -73,7 +75,10 @@ namespace lua51
     LuaLLoadString f_oLoadString = nullptr;
     LuaLLoadFile f_oLoadFile = nullptr;
     LuaLLoadFileX f_oLoadFileX = nullptr;
+    LuaPCall f_pCall = nullptr;
 
+    LuaCreateTable f_createTable = nullptr;
+    LuaLError f_lError = nullptr;
     LuaGetTop f_getTop = nullptr;
     LuaSetTop f_setTop = nullptr;
     LuaPushNil f_pushNil = nullptr;
@@ -102,14 +107,21 @@ namespace lua51
     LuaToNumber f_toNumber = nullptr;
     LuaTypeName f_typeName = nullptr;
 
+    const char* boolText(bool value) {
+        if (value) {
+            return "true";
+        }
+        return "false";
+    }
+
     template <typename T>
     T LuaExport(HMODULE module, const char* name) {
         T exportedFunction = reinterpret_cast<T>(GetProcAddress(module, name));
 
         if (exportedFunction == nullptr) {
-            sampo::log::write(" Could not find %s in lua51.dll module", name);
+            sampo::log::error("Could not find %s in module", name);
         } else {
-            sampo::log::write("Found %s.. [%p]", name, exportedFunction);
+            sampo::log::write("Found %s.. [%p]", name, reinterpret_cast<void*>(exportedFunction));
         }
 
         return exportedFunction;
@@ -118,33 +130,39 @@ namespace lua51
     lua_State* __cdecl hookLNewState() {
         lua_State* const state = f_oNewState();
         InterlockedExchangePointer(&p_oState, state);
+        sampo_lua::load(state);
         return state;
     }
 
     int __cdecl hookPCall(lua_State* state, int arg, int result, int error) {
         InterlockedExchangePointer(&p_oState, state);
+        sampo_lua::load(state);
         return f_oPCall(state, arg, result, error);
     }
 
     int __cdecl hookLoadBuffer(lua_State* state, const char* buffer, size_t size, const char* name, const char* mode) {
         InterlockedExchangePointer(&p_oState, state);
+        sampo_lua::load(state);
         return f_oLoadBuffer(state, buffer, size, name, mode);
     }
 
     int __cdecl hookLoadString(lua_State* state, const char* source) {
         InterlockedExchangePointer(&p_oState, state);
+        sampo_lua::load(state);
         return f_oLoadString(state, source);
     }
 
     int __cdecl hookLoadFile(lua_State* state, const char* filename)
     {
         InterlockedExchangePointer(&p_oState, state);
+        sampo_lua::load(state);
         return f_oLoadFile(state, filename);
     }
 
     int __cdecl hookLoadFileX(lua_State* state, const char* filename, const char* mode)
     {
         InterlockedExchangePointer(&p_oState, state);
+        sampo_lua::load(state);
         return f_oLoadFileX(state, filename, mode);
     }
 
@@ -156,10 +174,13 @@ namespace lua51
     bool lua51::init() {
         sampo::log::write("Initializing lua51 hook..");
         if (noita::lua51Base == nullptr) {
-            sampo::log::write("Lua51 hook failed: could not locate lua51.dll");
+            sampo::log::error("Lua51 hook failed: could not locate lua51.dll");
             return false;
         }
 
+        f_createTable = LuaExport<LuaCreateTable>(noita::lua51Base, "lua_createtable");
+        f_lError = LuaExport<LuaLError>(noita::lua51Base, "luaL_error");
+        f_pCall = LuaExport<LuaPCall>(noita::lua51Base, "lua_pcall");
         f_openLibs = LuaExport<LuaLOpenLibs>(noita::lua51Base, "luaL_openlibs");
         f_getTop = LuaExport<LuaGetTop>(noita::lua51Base, "lua_gettop");
         f_setTop = LuaExport<LuaSetTop>(noita::lua51Base, "lua_settop");
@@ -199,11 +220,11 @@ namespace lua51
         const bool loadFileXHooked = memory::hook_iat(noita::noitaBase, "lua51.dll", "luaL_loadfilex", reinterpret_cast<void*>(&hookLoadFileX), reinterpret_cast<void**>(&f_oLoadFileX));
 
         if (newStateHooked && closeHooked && pcallHooked && loadBufferHooked && loadStringHooked) {
-            sampo::log::write("Functions hooked successfully: /arrow luaL_newstate: %p /arrow lua_close: %p /arrow lua_pcall: %p /arrow luaL_loadbufferx: %p /arrow luaL_loadstring: %p /arrow luaL_loadfile: %p /arrow luaL_loadfilex: %p ",newStateHooked, closeHooked, pcallHooked, loadBufferHooked, loadStringHooked, loadFileHooked, loadFileXHooked);
+            sampo::log::write("Functions hooked successfully: /arrow luaL_newstate: %s /arrow lua_close: %s /arrow lua_pcall: %s /arrow luaL_loadbufferx: %s /arrow luaL_loadstring: %s /arrow luaL_loadfile: %s /arrow luaL_loadfilex: %s", boolText(newStateHooked), boolText(closeHooked), boolText(pcallHooked), boolText(loadBufferHooked), boolText(loadStringHooked), boolText(loadFileHooked), boolText(loadFileXHooked));
             return true;
         }
 
-        sampo::log::write("One or more mandatory functions failed to hook: /arrow luaL_newstate: %p /arrow lua_close: %p /arrow lua_pcall: %p /arrow luaL_loadbufferx: %p /arrow luaL_loadstring: %p /arrow luaL_loadfile: %p /arrow luaL_loadfilex: %p ", newStateHooked, closeHooked, pcallHooked, loadBufferHooked, loadStringHooked, loadFileHooked, loadFileXHooked);
+        sampo::log::error("One or more mandatory functions failed to hook: /arrow luaL_newstate: %s /arrow lua_close: %s /arrow lua_pcall: %s /arrow luaL_loadbufferx: %s /arrow luaL_loadstring: %s /arrow luaL_loadfile: %s /arrow luaL_loadfilex: %s", boolText(newStateHooked), boolText(closeHooked), boolText(pcallHooked), boolText(loadBufferHooked), boolText(loadStringHooked), boolText(loadFileHooked), boolText(loadFileXHooked));
         return false;
     }
 
@@ -211,5 +232,81 @@ namespace lua51
 
     lua_State* GetState() {
         return static_cast<lua_State*>(InterlockedCompareExchangePointer(&p_oState, nullptr, nullptr));
+    }
+
+    bool ready() {
+        return f_createTable != nullptr && f_lError != nullptr && f_pCall != nullptr && f_getTop != nullptr && f_setTop != nullptr && f_pushString != nullptr && f_pushNumber != nullptr && f_pushCClosure != nullptr && f_pushValue != nullptr && f_getField != nullptr && f_setField != nullptr && f_type != nullptr && f_toLString != nullptr && f_toCFunction != nullptr && f_toNumber != nullptr;
+    }
+
+    int getTop(lua_State* state) {
+        return f_getTop(state);
+    }
+
+    void setTop(lua_State* state, int index) {
+        f_setTop(state, index);
+    }
+
+    void pop(lua_State* state, int count) {
+        f_setTop(state, -count - 1);
+    }
+
+    void createTable(lua_State* state, int arrayCount, int fieldCount) {
+        f_createTable(state, arrayCount, fieldCount);
+    }
+
+    void getField(lua_State* state, int index, const char* name) {
+        f_getField(state, index, name);
+    }
+
+    void setField(lua_State* state, int index, const char* name) {
+        f_setField(state, index, name);
+    }
+
+    void getGlobal(lua_State* state, const char* name) {
+        f_getField(state, globalsIndex, name);
+    }
+
+    void setGlobal(lua_State* state, const char* name) {
+        f_setField(state, globalsIndex, name);
+    }
+
+    void pushString(lua_State* state, const char* value) {
+        f_pushString(state, value);
+    }
+
+    void pushNumber(lua_State* state, double value) {
+        f_pushNumber(state, value);
+    }
+
+    void pushFunction(lua_State* state, LuaCFunction function) {
+        f_pushCClosure(state, function, 0);
+    }
+
+    void pushValue(lua_State* state, int index) {
+        f_pushValue(state, index);
+    }
+
+    int type(lua_State* state, int index) {
+        return f_type(state, index);
+    }
+
+    const char* toString(lua_State* state, int index, std::size_t* length) {
+        return f_toLString(state, index, length);
+    }
+
+    double toNumber(lua_State* state, int index) {
+        return f_toNumber(state, index);
+    }
+
+    LuaCFunction toFunction(lua_State* state, int index) {
+        return f_toCFunction(state, index);
+    }
+
+    int pcall(lua_State* state, int arguments, int results, int errorFunction) {
+        return f_pCall(state, arguments, results, errorFunction);
+    }
+
+    int fail(lua_State* state, const char* message) {
+        return f_lError(state, "%s", message);
     }
 }

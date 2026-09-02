@@ -1,6 +1,7 @@
 #include "overlay.h"
 
 #include "log.h"
+#include "noita_mainmenu.h"
 
 #include <windows.h>
 #include <gl/GL.h>
@@ -9,12 +10,14 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -22,6 +25,8 @@ namespace {
     bool p_visible = false;
     float p_fontSize = 0.0f;
     GLuint p_fontTexture = 0;
+    GLuint p_noitaFontTexture = 0;
+    GLuint p_noitaShadowTexture = 0;
     unsigned p_noitaFontWidth = 0;
     unsigned p_noitaFontHeight = 0;
     std::vector<unsigned char> p_noitaFontPixels;
@@ -244,6 +249,35 @@ namespace {
         if (p_noitaFontPixels.empty()) {
             return false;
         }
+
+        std::vector<unsigned char> letterPixels = p_noitaFontPixels;
+        std::vector<unsigned char> shadowPixels = p_noitaFontPixels;
+        for (std::size_t offset = 0; offset + 3 < p_noitaFontPixels.size(); offset += 4) {
+            const bool shadow = p_noitaFontPixels[offset] == 0 && p_noitaFontPixels[offset + 1] == 0 && p_noitaFontPixels[offset + 2] == 0 && p_noitaFontPixels[offset + 3] != 0;
+            if (shadow) {
+                letterPixels[offset + 3] = 0;
+                shadowPixels[offset] = 0xFF;
+                shadowPixels[offset + 1] = 0xFF;
+                shadowPixels[offset + 2] = 0xFF;
+            } else {
+                shadowPixels[offset + 3] = 0;
+            }
+        }
+
+        GLint previousTexture = 0;
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
+        glGenTextures(1, &p_noitaFontTexture);
+        glBindTexture(GL_TEXTURE_2D, p_noitaFontTexture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, p_noitaFontWidth, p_noitaFontHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, letterPixels.data());
+        glGenTextures(1, &p_noitaShadowTexture);
+        glBindTexture(GL_TEXTURE_2D, p_noitaShadowTexture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, p_noitaFontWidth, p_noitaFontHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, shadowPixels.data());
+        glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
         return true;
     }
 
@@ -485,14 +519,137 @@ namespace {
         ImGui::EndMainMenuBar();
     }
 
-    void drawLogLine(const std::string& line) {
+    bool isValueBoundary(const std::string& text, std::size_t position) {
+        if (position >= text.size()) {
+            return true;
+        }
+
+        const unsigned char character = static_cast<unsigned char>(text[position]);
+        return std::isalnum(character) == 0 && character != '_';
+    }
+
+    bool matchesValueWord(const std::string& text, std::size_t position, const char* word) {
+        const std::size_t wordLength = std::strlen(word);
+        if (position + wordLength > text.size()) {
+            return false;
+        }
+        if (position > 0 && !isValueBoundary(text, position - 1)) {
+            return false;
+        }
+        if (!isValueBoundary(text, position + wordLength)) {
+            return false;
+        }
+
+        for (std::size_t index = 0; index < wordLength; ++index) {
+            const unsigned char textCharacter = static_cast<unsigned char>(text[position + index]);
+            const unsigned char wordCharacter = static_cast<unsigned char>(word[index]);
+            if (std::tolower(textCharacter) != std::tolower(wordCharacter)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    std::size_t valueLength(const std::string& text, std::size_t position) {
+        constexpr const char* valueWords[] = {"true", "false", "yes", "no"};
+        for (const char* word : valueWords) {
+            if (matchesValueWord(text, position, word)) {
+                return std::strlen(word);
+            }
+        }
+
+        if (position > 0 && !isValueBoundary(text, position - 1)) {
+            return 0;
+        }
+
+        std::size_t index = position;
+        if (index < text.size() && (text[index] == '-' || text[index] == '+')) {
+            ++index;
+        }
+        if (index >= text.size() || std::isdigit(static_cast<unsigned char>(text[index])) == 0) {
+            return 0;
+        }
+
+        if (index + 1 < text.size() && text[index] == '0' && (text[index + 1] == 'x' || text[index + 1] == 'X')) {
+            index += 2;
+            const std::size_t hexadecimalStart = index;
+            while (index < text.size() && std::isxdigit(static_cast<unsigned char>(text[index])) != 0) {
+                ++index;
+            }
+            if (index == hexadecimalStart) {
+                return 0;
+            }
+        } else {
+            while (index < text.size() && std::isxdigit(static_cast<unsigned char>(text[index])) != 0) {
+                ++index;
+            }
+            if (index < text.size() && text[index] == '.') {
+                ++index;
+                while (index < text.size() && std::isdigit(static_cast<unsigned char>(text[index])) != 0) {
+                    ++index;
+                }
+            }
+        }
+
+        if (!isValueBoundary(text, index)) {
+            return 0;
+        }
+
+        return index - position;
+    }
+
+    void drawTextSegment(ImDrawList* drawList, ImVec2& position, const std::string& text, std::size_t start, std::size_t length, const ImVec4& color) {
+        if (length == 0) {
+            return;
+        }
+
+        const char* begin = text.data() + start;
+        const char* end = begin + length;
+        drawList->AddText(position, ImGui::ColorConvertFloat4ToU32(color), begin, end);
+        position.x += ImGui::CalcTextSize(begin, end).x;
+    }
+
+    void drawColoredText(const std::string& text, std::size_t offset, const ImVec4& color) {
+        const ImVec4 blue(0.35f, 0.62f, 0.95f, 1.0f);
+        const std::string visibleText = text.substr(offset);
+        ImDrawList* const drawList = ImGui::GetWindowDrawList();
+        const ImVec2 startPosition = ImGui::GetCursorScreenPos();
+        ImVec2 position = startPosition;
+        std::size_t segmentStart = 0;
+        std::size_t index = 0;
+
+        while (index < visibleText.size()) {
+            const std::size_t highlightedLength = valueLength(visibleText, index);
+            if (highlightedLength == 0) {
+                ++index;
+                continue;
+            }
+
+            drawTextSegment(drawList, position, visibleText, segmentStart, index - segmentStart, color);
+            drawTextSegment(drawList, position, visibleText, index, highlightedLength, blue);
+            index += highlightedLength;
+            segmentStart = index;
+        }
+
+        drawTextSegment(drawList, position, visibleText, segmentStart, visibleText.size() - segmentStart, color);
+        ImGui::Dummy(ImVec2(position.x - startPosition.x, ImGui::GetTextLineHeight()));
+    }
+
+    void drawLogLine(const sampo::log::Line& line) {
         constexpr const char* arrowPrefix = "\t\xE2\x86\xB3 ";
         const std::size_t arrowPrefixLength = std::strlen(arrowPrefix);
-        const bool isArrowLine = line.size() >= arrowPrefixLength &&
-                                 line.compare(0, arrowPrefixLength, arrowPrefix) == 0;
+        const bool isArrowLine = line.text.size() >= arrowPrefixLength &&
+                                 line.text.compare(0, arrowPrefixLength, arrowPrefix) == 0;
+        const ImVec4 white(0.92f, 0.92f, 0.92f, 1.0f);
+        const ImVec4 red(0.95f, 0.24f, 0.22f, 1.0f);
 
         if (!isArrowLine) {
-            ImGui::TextColored(ImVec4(0.92f, 0.92f, 0.92f, 1.0f), "%s", line.c_str());
+            if (line.error) {
+                drawColoredText(line.text, 0, red);
+            } else {
+                drawColoredText(line.text, 0, white);
+            }
             return;
         }
 
@@ -504,13 +661,18 @@ namespace {
         const float arrowX = textPosition.x - 15.0f;
         const float arrowMiddleY = textPosition.y + lineHeight * 0.52f;
         const ImVec4 gray(0.46f, 0.45f, 0.41f, 1.0f);
-        const ImU32 arrowColor = ImGui::ColorConvertFloat4ToU32(gray);
+        const ImVec4 darkRed(0.50f, 0.16f, 0.14f, 1.0f);
+        ImVec4 arrowTextColor = gray;
+        if (line.error) {
+            arrowTextColor = darkRed;
+        }
+        const ImU32 arrowColor = ImGui::ColorConvertFloat4ToU32(arrowTextColor);
         ImDrawList* const drawList = ImGui::GetWindowDrawList();
         drawList->AddLine(ImVec2(arrowX, textPosition.y + 1.0f), ImVec2(arrowX, arrowMiddleY), arrowColor, 1.0f);
         drawList->AddLine(ImVec2(arrowX, arrowMiddleY), ImVec2(arrowX + 8.0f, arrowMiddleY), arrowColor, 1.0f);
         drawList->AddLine(ImVec2(arrowX + 8.0f, arrowMiddleY), ImVec2(arrowX + 5.0f, arrowMiddleY - 3.0f), arrowColor, 1.0f);
         drawList->AddLine(ImVec2(arrowX + 8.0f, arrowMiddleY), ImVec2(arrowX + 5.0f, arrowMiddleY + 3.0f), arrowColor, 1.0f);
-        ImGui::TextColored(gray, "%s", line.c_str() + arrowPrefixLength);
+        drawColoredText(line.text, arrowPrefixLength, arrowTextColor);
         ImGui::Unindent(messageIndent);
     }
 
@@ -522,11 +684,11 @@ namespace {
         constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings;
         if (ImGui::Begin("##SampoLogs", nullptr, flags)) {
             ImGui::BeginChild("##SampoLogContents", ImVec2(-1.0f, -1.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
-            const std::vector<std::string> lines = sampo::log::snapshot();
+            const std::vector<sampo::log::Line> lines = sampo::log::snapshot();
             if (lines.empty()) {
                 ImGui::TextDisabled("No log entries.");
             } else {
-                for (const std::string& line : lines) {
+                for (const sampo::log::Line& line : lines) {
                     drawLogLine(line);
                 }
             }
@@ -600,6 +762,54 @@ namespace {
     }
 }
 
+void overlay::drawNoitaText(float x, float y, float scale, unsigned int color, const char* text, bool rainbow) {
+    if (p_noitaFontTexture == 0 || p_noitaFontWidth == 0 || p_noitaFontHeight == 0 || text == nullptr) {
+        return;
+    }
+
+    ImDrawList* const drawList = ImGui::GetForegroundDrawList();
+    float currentX = x;
+    for (const unsigned char character : std::string_view(text)) {
+        const NoitaGlyph& glyph = p_noitaGlyphs[character];
+        if (!glyph.valid) {
+            continue;
+        }
+
+        const ImVec2 minimum(currentX + static_cast<float>(glyph.offsetX) * scale, y + static_cast<float>(glyph.offsetY) * scale);
+        const ImVec2 maximum(minimum.x + static_cast<float>(glyph.width) * scale, minimum.y + static_cast<float>(glyph.height) * scale);
+        const ImVec2 uvMinimum(static_cast<float>(glyph.x) / static_cast<float>(p_noitaFontWidth), static_cast<float>(glyph.y) / static_cast<float>(p_noitaFontHeight));
+        const ImVec2 uvMaximum(static_cast<float>(glyph.x + glyph.width) / static_cast<float>(p_noitaFontWidth), static_cast<float>(glyph.y + glyph.height) / static_cast<float>(p_noitaFontHeight));
+        ImU32 glyphColor = color;
+        if (rainbow) {
+            float red = 0.0f;
+            float green = 0.0f;
+            float blue = 0.0f;
+            const float hue = std::fmod(static_cast<float>(ImGui::GetTime()) * 0.10f + currentX / scale * 0.005f, 1.0f);
+            ImGui::ColorConvertHSVtoRGB(hue, 0.72f, 0.90f, red, green, blue);
+            glyphColor = ImGui::ColorConvertFloat4ToU32(ImVec4(red, green, blue, 1.0f));
+        }
+
+        drawList->AddImage(static_cast<ImTextureID>(p_noitaShadowTexture), minimum, maximum, uvMinimum, uvMaximum, IM_COL32(0x12, 0x13, 0x1A, 0xFF));
+        drawList->AddImage(static_cast<ImTextureID>(p_noitaFontTexture), minimum, maximum, uvMinimum, uvMaximum, glyphColor);
+        currentX += static_cast<float>(glyph.advance) * scale;
+    }
+}
+
+float overlay::noitaTextWidth(float scale, const char* text) {
+    if (text == nullptr) {
+        return 0.0f;
+    }
+
+    float width = 0.0f;
+    for (const unsigned char character : std::string_view(text)) {
+        const NoitaGlyph& glyph = p_noitaGlyphs[character];
+        if (glyph.valid) {
+            width += static_cast<float>(glyph.advance) * scale;
+        }
+    }
+    return width;
+}
+
 void overlay::draw() {
     if (!p_initialized) {
         initialize();
@@ -627,6 +837,9 @@ void overlay::draw() {
     updateMouse();
 
     ImGui::NewFrame();
+    if (!p_visible) {
+        noita_mainmenu::draw();
+    }
     if (p_visible) {
         drawMenuBar();
         drawLogs(io.DisplaySize);
