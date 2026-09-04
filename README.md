@@ -12,6 +12,6 @@ Will build a proxy winmm.dll that needs to be placed inside of C:\Program Files 
 
 This is being built off the idea of this abandoned project [Beefcake](https://github.com/BoldlyGo88/Beefcake)
 
-In its current state this is usable as an alternative mod loader/manager without much configuration without modifying the source
+In its current state this is usable as an alternative mod loader/manager, with the lack of configuration (w/o modifying source)
 
 It DOES block Noita's mod check, you will get achievements, unlocks, etc while using mods with this. 
