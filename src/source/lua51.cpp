@@ -9,20 +9,6 @@
 
 namespace lua51
 {
-    struct lua_Debug {
-        int event;
-        const char* name;
-        const char* namewhat;
-        const char* what;
-        const char* source;
-        int currentline;
-        int nups;
-        int linedefined;
-        int lastlinedefined;
-        char short_src[60];
-        int i_ci;
-    };
-
     using LuaCFunction = int(__cdecl*)(lua_State*);
     using LuaLNewState = lua_State * (__cdecl*)();
     using LuaLOpenLibs = void(__cdecl*)(lua_State*);
@@ -44,6 +30,8 @@ namespace lua51
     using LuaPushValue = void(__cdecl*)(lua_State*, int);
     using LuaGetField = void(__cdecl*)(lua_State*, int, const char*);
     using LuaSetField = void(__cdecl*)(lua_State*, int, const char*);
+    using LuaRawGetIndex = void(__cdecl*)(lua_State*, int, int);
+    using LuaRawSetIndex = void(__cdecl*)(lua_State*, int, int);
     using LuaNext = int(__cdecl*)(lua_State*, int);
     using LuaType = int(__cdecl*)(lua_State*, int);
     using LuaToLString = const char* (__cdecl*)(lua_State*, int, size_t*);
@@ -89,6 +77,8 @@ namespace lua51
     LuaPushValue f_pushValue = nullptr;
     LuaGetField f_getField = nullptr;
     LuaSetField f_setField = nullptr;
+    LuaRawGetIndex f_rawGetIndex = nullptr;
+    LuaRawSetIndex f_rawSetIndex = nullptr;
     LuaNext f_next = nullptr;
     LuaType f_type = nullptr;
     LuaToLString f_toLString = nullptr;
@@ -192,6 +182,8 @@ namespace lua51
         f_pushValue = LuaExport<LuaPushValue>(noita::lua51Base, "lua_pushvalue");
         f_getField = LuaExport<LuaGetField>(noita::lua51Base, "lua_getfield");
         f_setField = LuaExport<LuaSetField>(noita::lua51Base, "lua_setfield");
+        f_rawGetIndex = LuaExport<LuaRawGetIndex>(noita::lua51Base, "lua_rawgeti");
+        f_rawSetIndex = LuaExport<LuaRawSetIndex>(noita::lua51Base, "lua_rawseti");
         f_next = LuaExport<LuaNext>(noita::lua51Base, "lua_next");
         f_type = LuaExport<LuaType>(noita::lua51Base, "lua_type");
         f_toLString = LuaExport<LuaToLString>(noita::lua51Base, "lua_tolstring");
@@ -235,7 +227,7 @@ namespace lua51
     }
 
     bool ready() {
-        return f_createTable != nullptr && f_lError != nullptr && f_pCall != nullptr && f_getTop != nullptr && f_setTop != nullptr && f_pushString != nullptr && f_pushNumber != nullptr && f_pushCClosure != nullptr && f_pushValue != nullptr && f_getField != nullptr && f_setField != nullptr && f_type != nullptr && f_toLString != nullptr && f_toCFunction != nullptr && f_toNumber != nullptr;
+        return f_createTable != nullptr && f_lError != nullptr && f_pCall != nullptr && f_getTop != nullptr && f_setTop != nullptr && f_pushNil != nullptr && f_pushString != nullptr && f_pushNumber != nullptr && f_pushBoolean != nullptr && f_pushCClosure != nullptr && f_pushValue != nullptr && f_getField != nullptr && f_setField != nullptr && f_rawGetIndex != nullptr && f_rawSetIndex != nullptr && f_type != nullptr && f_toLString != nullptr && f_toCFunction != nullptr && f_toBoolean != nullptr && f_toNumber != nullptr;
     }
 
     int getTop(lua_State* state) {
@@ -262,6 +254,14 @@ namespace lua51
         f_setField(state, index, name);
     }
 
+    void rawGetIndex(lua_State* state, int index, int item) {
+        f_rawGetIndex(state, index, item);
+    }
+
+    void rawSetIndex(lua_State* state, int index, int item) {
+        f_rawSetIndex(state, index, item);
+    }
+
     void getGlobal(lua_State* state, const char* name) {
         f_getField(state, globalsIndex, name);
     }
@@ -270,12 +270,20 @@ namespace lua51
         f_setField(state, globalsIndex, name);
     }
 
+    void pushNil(lua_State* state) {
+        f_pushNil(state);
+    }
+
     void pushString(lua_State* state, const char* value) {
         f_pushString(state, value);
     }
 
     void pushNumber(lua_State* state, double value) {
         f_pushNumber(state, value);
+    }
+
+    void pushBoolean(lua_State* state, bool value) {
+        f_pushBoolean(state, value ? 1 : 0);
     }
 
     void pushFunction(lua_State* state, LuaCFunction function) {
@@ -298,6 +306,10 @@ namespace lua51
         return f_toNumber(state, index);
     }
 
+    bool toBoolean(lua_State* state, int index) {
+        return f_toBoolean(state, index) != 0;
+    }
+
     LuaCFunction toFunction(lua_State* state, int index) {
         return f_toCFunction(state, index);
     }
@@ -308,5 +320,33 @@ namespace lua51
 
     int fail(lua_State* state, const char* message) {
         return f_lError(state, "%s", message);
+    }
+
+    int loadBuffer(lua_State* state, const char* source, std::size_t size, const char* name, const char* mode) {
+        if (f_oLoadBuffer == nullptr) {
+            return -1;
+        }
+        return f_oLoadBuffer(state, source, size, name, mode);
+    }
+
+    int loadString(lua_State* state, const char* source) {
+        if (f_oLoadString == nullptr) {
+            return -1;
+        }
+        return f_oLoadString(state, source);
+    }
+
+    bool getStack(lua_State* state, int level, lua_Debug* debug) {
+        if (f_getStack == nullptr) {
+            return false;
+        }
+        return f_getStack(state, level, debug) != 0;
+    }
+
+    bool getInfo(lua_State* state, const char* information, lua_Debug* debug) {
+        if (f_getInfo == nullptr) {
+            return false;
+        }
+        return f_getInfo(state, information, debug) != 0;
     }
 }

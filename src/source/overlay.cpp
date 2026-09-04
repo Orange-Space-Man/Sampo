@@ -1,6 +1,7 @@
 #include "overlay.h"
 
 #include "log.h"
+#include "mod_manager.h"
 #include "noita_mainmenu.h"
 
 #include <windows.h>
@@ -21,8 +22,14 @@
 #include <vector>
 
 namespace {
+    enum class Page {
+        logs,
+        modManager
+    };
+
     bool p_initialized = false;
     bool p_visible = false;
+    Page p_page = Page::logs;
     float p_fontSize = 0.0f;
     GLuint p_fontTexture = 0;
     GLuint p_noitaFontTexture = 0;
@@ -515,7 +522,12 @@ namespace {
             return;
         }
 
-        ImGui::MenuItem("Sampo Logs", nullptr, true);
+        if (ImGui::MenuItem("Sampo Logs", nullptr, p_page == Page::logs)) {
+            p_page = Page::logs;
+        }
+        if (ImGui::MenuItem("Mod Manager", nullptr, p_page == Page::modManager)) {
+            p_page = Page::modManager;
+        }
         ImGui::EndMainMenuBar();
     }
 
@@ -762,6 +774,11 @@ namespace {
     }
 }
 
+void overlay::showModManager() {
+    p_page = Page::modManager;
+    p_visible = true;
+}
+
 void overlay::drawNoitaText(float x, float y, float scale, unsigned int color, const char* text, bool rainbow) {
     if (p_noitaFontTexture == 0 || p_noitaFontWidth == 0 || p_noitaFontHeight == 0 || text == nullptr) {
         return;
@@ -835,6 +852,7 @@ void overlay::draw() {
     }
     p_lastFrame = now;
     updateMouse();
+    noita_mainmenu::keepModsUnrestricted();
 
     ImGui::NewFrame();
     if (!p_visible) {
@@ -842,7 +860,11 @@ void overlay::draw() {
     }
     if (p_visible) {
         drawMenuBar();
-        drawLogs(io.DisplaySize);
+        if (p_page == Page::logs) {
+            drawLogs(io.DisplaySize);
+        } else {
+            mod_manager::draw(ImGui::GetFrameHeight());
+        }
     }
     ImGui::Render();
     render(ImGui::GetDrawData());

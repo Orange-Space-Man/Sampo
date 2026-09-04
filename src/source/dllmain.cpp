@@ -1,14 +1,18 @@
 #include <windows.h>
 #include "lua51.h"
+#include "mod_manager.h"
 #include "noita_mainmenu.h"
 #include "sdl2.h"
+#include "steam.h"
 #include "log.h"
 
 namespace {
     DWORD WINAPI Initialize(LPVOID) {
         sampo::log::write("Initializing Sampo..");
+        steam::init();
         lua51::init();
         sdl2::init();
+        mod_manager::init();
         noita_mainmenu::init();
         return 0;
     }
