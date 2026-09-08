@@ -4,6 +4,7 @@
 #include "memory.h"
 #include "lua51.h"
 #include "sampo_lua.h"
+#include "mod_settings.h"
 #include <cstdint>
 #include "log.h"
 
@@ -38,6 +39,7 @@ namespace lua51
     using LuaToCFunction = LuaCFunction(__cdecl*)(lua_State*, int);
     using LuaToPointer = const void* (__cdecl*)(lua_State*, int);
     using LuaLRef = int(__cdecl*)(lua_State*, int);
+    using LuaLUnref = void(__cdecl*)(lua_State*, int, int);
     using LuaHook = void(__cdecl*)(lua_State*, lua_Debug*);
     using LuaSetHook = int(__cdecl*)(lua_State*, LuaHook, int, int);
     using LuaGetHook = LuaHook(__cdecl*)(lua_State*);
@@ -85,6 +87,7 @@ namespace lua51
     LuaToCFunction f_toCFunction = nullptr;
     LuaToPointer f_toPointer = nullptr;
     LuaLRef f_lRef = nullptr;
+    LuaLUnref f_lUnref = nullptr;
     LuaSetHook f_setHook = nullptr;
     LuaGetHook f_getHook = nullptr;
     LuaGetHookMask f_getHookMask = nullptr;
@@ -133,6 +136,10 @@ namespace lua51
     int __cdecl hookLoadBuffer(lua_State* state, const char* buffer, size_t size, const char* name, const char* mode) {
         InterlockedExchangePointer(&p_oState, state);
         sampo_lua::load(state);
+        std::string filteredSource;
+        if (mod_settings::filterSource(name, buffer, size, filteredSource)) {
+            return f_oLoadBuffer(state, filteredSource.data(), filteredSource.size(), name, mode);
+        }
         return f_oLoadBuffer(state, buffer, size, name, mode);
     }
 
@@ -190,6 +197,7 @@ namespace lua51
         f_toCFunction = LuaExport<LuaToCFunction>(noita::lua51Base, "lua_tocfunction");
         f_toPointer = LuaExport<LuaToPointer>(noita::lua51Base, "lua_topointer");
         f_lRef = LuaExport<LuaLRef>(noita::lua51Base, "luaL_ref");
+        f_lUnref = LuaExport<LuaLUnref>(noita::lua51Base, "luaL_unref");
         f_setHook = LuaExport<LuaSetHook>(noita::lua51Base, "lua_sethook");
         f_getHook = LuaExport<LuaGetHook>(noita::lua51Base, "lua_gethook");
         f_getHookMask = LuaExport<LuaGetHookMask>(noita::lua51Base, "lua_gethookmask");
@@ -222,12 +230,12 @@ namespace lua51
 
     // lua functions
 
-    lua_State* GetState() {
+    lua_State* getState() {
         return static_cast<lua_State*>(InterlockedCompareExchangePointer(&p_oState, nullptr, nullptr));
     }
 
     bool ready() {
-        return f_createTable != nullptr && f_lError != nullptr && f_pCall != nullptr && f_getTop != nullptr && f_setTop != nullptr && f_pushNil != nullptr && f_pushString != nullptr && f_pushNumber != nullptr && f_pushBoolean != nullptr && f_pushCClosure != nullptr && f_pushValue != nullptr && f_getField != nullptr && f_setField != nullptr && f_rawGetIndex != nullptr && f_rawSetIndex != nullptr && f_type != nullptr && f_toLString != nullptr && f_toCFunction != nullptr && f_toBoolean != nullptr && f_toNumber != nullptr;
+        return f_createTable != nullptr && f_lError != nullptr && f_pCall != nullptr && f_getTop != nullptr && f_setTop != nullptr && f_pushNil != nullptr && f_pushString != nullptr && f_pushNumber != nullptr && f_pushBoolean != nullptr && f_pushCClosure != nullptr && f_pushValue != nullptr && f_getField != nullptr && f_setField != nullptr && f_rawGetIndex != nullptr && f_rawSetIndex != nullptr && f_type != nullptr && f_toLString != nullptr && f_toCFunction != nullptr && f_lRef != nullptr && f_lUnref != nullptr && f_toBoolean != nullptr && f_toNumber != nullptr;
     }
 
     int getTop(lua_State* state) {
@@ -260,6 +268,17 @@ namespace lua51
 
     void rawSetIndex(lua_State* state, int index, int item) {
         f_rawSetIndex(state, index, item);
+    }
+
+    int reference(lua_State* state) {
+        return f_lRef(state, registryIndex);
+    }
+
+    void unreference(lua_State* state, int reference) {
+        if (reference < 0 || f_lUnref == nullptr) {
+            return;
+        }
+        f_lUnref(state, registryIndex, reference);
     }
 
     void getGlobal(lua_State* state, const char* name) {
@@ -334,6 +353,13 @@ namespace lua51
             return -1;
         }
         return f_oLoadString(state, source);
+    }
+
+    int loadFile(lua_State* state, const char* filename) {
+        if (f_oLoadFile == nullptr) {
+            return -1;
+        }
+        return f_oLoadFile(state, filename);
     }
 
     bool getStack(lua_State* state, int level, lua_Debug* debug) {

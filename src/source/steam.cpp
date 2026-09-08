@@ -1,4 +1,4 @@
-#include "steam.h"=
+#include "steam.h"
 #include <windows.h>
 #include <cstdint>
 #include "log.h"

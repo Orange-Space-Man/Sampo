@@ -1,7 +1,10 @@
 #include "mod_manager.h"
 
 #include "log.h"
+#include "lua51.h"
 #include "noita.h"
+#include "settings.h"
+#include "mod_settings.h"
 
 #include <windows.h>
 #include <imgui.h>
@@ -42,6 +45,7 @@ namespace {
         bool hasInit = false;
         bool hasSettingsLua = false;
         bool hasSettingsXml = false;
+        bool sampoOnlySettings = false;
         bool unrestricted = false;
     };
 
@@ -49,6 +53,12 @@ namespace {
         std::vector<Mod> mods;
         std::vector<Mod> active;
         std::string error;
+    };
+
+    struct NewGameCallback {
+        std::string mod;
+        int function = -1;
+        bool done = false;
     };
 
     std::mutex p_mutex;
@@ -64,6 +74,108 @@ namespace {
     ImVec2 p_draggedSize;
     ImVec2 p_draggedOffset;
     bool p_draggedSampo = false;
+    lua51::lua_State* p_newGameState = nullptr;
+    std::vector<NewGameCallback> p_newGameCallbacks;
+    int p_backdropGui = -1;
+
+    void destroyBackdrop() {
+        if (p_newGameState == nullptr || p_backdropGui < 0) {
+            p_backdropGui = -1;
+            return;
+        }
+        const int top = lua51::getTop(p_newGameState);
+        lua51::getGlobal(p_newGameState, "GuiDestroy");
+        if (lua51::type(p_newGameState, -1) == lua51::typeFunction) {
+            lua51::rawGetIndex(p_newGameState, lua51::registryIndex, p_backdropGui);
+            lua51::pcall(p_newGameState, 1, 0, 0);
+        }
+        lua51::setTop(p_newGameState, top);
+        lua51::unreference(p_newGameState, p_backdropGui);
+        p_backdropGui = -1;
+    }
+
+    bool createBackdrop() {
+        if (p_newGameState == nullptr || p_backdropGui >= 0) {
+            return p_backdropGui >= 0;
+        }
+        const int top = lua51::getTop(p_newGameState);
+        lua51::getGlobal(p_newGameState, "GuiCreate");
+        if (lua51::type(p_newGameState, -1) != lua51::typeFunction || lua51::pcall(p_newGameState, 0, 1, 0) != 0 || lua51::type(p_newGameState, -1) == lua51::typeNil) {
+            lua51::setTop(p_newGameState, top);
+            return false;
+        }
+        p_backdropGui = lua51::reference(p_newGameState);
+        lua51::setTop(p_newGameState, top);
+        return p_backdropGui >= 0;
+    }
+
+    void drawBackdrop() {
+        if (!createBackdrop()) {
+            return;
+        }
+
+        lua51::lua_State* const state = p_newGameState;
+        const int top = lua51::getTop(state);
+        lua51::getGlobal(state, "GuiStartFrame");
+        if (lua51::type(state, -1) != lua51::typeFunction) {
+            lua51::setTop(state, top);
+            return;
+        }
+        lua51::rawGetIndex(state, lua51::registryIndex, p_backdropGui);
+        if (lua51::pcall(state, 1, 0, 0) != 0) {
+            lua51::setTop(state, top);
+            return;
+        }
+
+        double width = 1920.0;
+        double height = 1080.0;
+        lua51::getGlobal(state, "GuiGetScreenDimensions");
+        if (lua51::type(state, -1) == lua51::typeFunction) {
+            lua51::rawGetIndex(state, lua51::registryIndex, p_backdropGui);
+            if (lua51::pcall(state, 1, 2, 0) == 0 && lua51::type(state, -2) == lua51::typeNumber && lua51::type(state, -1) == lua51::typeNumber) {
+                width = lua51::toNumber(state, -2);
+                height = lua51::toNumber(state, -1);
+            }
+        }
+        lua51::setTop(state, top);
+
+        for (int layer = 1; layer <= 8; ++layer) {
+            lua51::getGlobal(state, "GuiZSetForNextWidget");
+            if (lua51::type(state, -1) == lua51::typeFunction) {
+                lua51::rawGetIndex(state, lua51::registryIndex, p_backdropGui);
+                lua51::pushNumber(state, -900.0 - layer);
+                lua51::pcall(state, 2, 0, 0);
+            } else {
+                lua51::pop(state, 1);
+            }
+
+            lua51::getGlobal(state, "GuiColorSetForNextWidget");
+            if (lua51::type(state, -1) == lua51::typeFunction) {
+                lua51::rawGetIndex(state, lua51::registryIndex, p_backdropGui);
+                lua51::pushNumber(state, 0.0);
+                lua51::pushNumber(state, 0.0);
+                lua51::pushNumber(state, 0.0);
+                lua51::pushNumber(state, 1.0);
+                lua51::pcall(state, 5, 0, 0);
+            } else {
+                lua51::pop(state, 1);
+            }
+
+            lua51::getGlobal(state, "GuiImageNinePiece");
+            if (lua51::type(state, -1) == lua51::typeFunction) {
+                lua51::rawGetIndex(state, lua51::registryIndex, p_backdropGui);
+                lua51::pushNumber(state, 2147483000.0 - layer);
+                lua51::pushNumber(state, -4.0);
+                lua51::pushNumber(state, -4.0);
+                lua51::pushNumber(state, width + 8.0);
+                lua51::pushNumber(state, height + 8.0);
+                lua51::pcall(state, 6, 0, 0);
+            } else {
+                lua51::pop(state, 1);
+            }
+        }
+        lua51::setTop(state, top);
+    }
 
     std::string readFile(const std::filesystem::path& path) {
         std::ifstream file(path, std::ios::binary);
@@ -252,6 +364,7 @@ namespace {
         mod.sampoVersion = attribute(compatibility, "sampo");
         mod.sampo = (!mod.sampoVersion.empty() && mod.sampoVersion != "0") || attribute(compatibility, "nmdt") == "1";
         mod.unrestricted = attribute(manifest, "request_no_api_restrictions") == "1";
+        mod.sampoOnlySettings = attribute(manifest, "sampo_only_settings") == "1";
         const auto enabledEntry = enabled.find(mod.key);
         if (enabledEntry != enabled.end()) {
             mod.enabled = enabledEntry->second;
@@ -375,6 +488,17 @@ namespace {
             return left.name < right.name;
         });
         p_mods.insert(p_mods.end(), std::make_move_iterator(additions.begin()), std::make_move_iterator(additions.end()));
+        std::vector<mod_settings::Mod> secretSettings;
+        for (const Mod& mod : p_mods) {
+            if (!mod.sampoOnlySettings || !mod.hasSettingsLua) {
+                continue;
+            }
+            mod_settings::Mod secret;
+            secret.id = mod.id;
+            secret.directory = mod.directory;
+            secretSettings.push_back(std::move(secret));
+        }
+        mod_settings::setMods(secretSettings);
         p_error.clear();
     }
 
@@ -824,6 +948,12 @@ namespace {
             setEnabled(key, false);
             return;
         }
+        if (selected->sampoOnlySettings && selected->hasSettingsLua) {
+            ImGui::SameLine();
+            if (ImGui::Button("Mod settings")) {
+                mod_settings::open(selected->id, selected->name);
+            }
+        }
 
         ImGui::Spacing();
         ImGui::Text("Files (%zu)", selected->files.size());
@@ -874,12 +1004,123 @@ bool mod_manager::findMod(const std::string& sourceId, std::string& id, std::str
     return false;
 }
 
+bool mod_manager::beginNewGame() {
+    releaseNewGame();
+    lua51::lua_State* const state = lua51::getState();
+    if (state == nullptr || !lua51::ready()) {
+        return false;
+    }
+
+    const Snapshot current = snapshot();
+    p_newGameState = state;
+    for (const Mod& mod : current.active) {
+        if (!mod.sampo || !mod.hasInit) {
+            continue;
+        }
+
+        const int top = lua51::getTop(state);
+        lua51::getGlobal(state, "OnNewGame");
+        const int previous = lua51::reference(state);
+        lua51::pushNil(state);
+        lua51::setGlobal(state, "OnNewGame");
+
+        const std::filesystem::path path = std::filesystem::path(mod.directory) / "init.lua";
+        int status = lua51::loadFile(state, path.string().c_str());
+        if (status == 0) {
+            status = lua51::pcall(state, 0, 0, 0);
+        }
+        if (status != 0) {
+            const char* const message = lua51::toString(state, -1);
+            const char* error = message;
+            if (error == nullptr) {
+                error = "unknown error";
+            }
+            sampo::log::error("OnNewGame load failed: /arrow Mod: %s /arrow Error: %s", mod.id.c_str(), error);
+        } else {
+            lua51::getGlobal(state, "OnNewGame");
+            if (lua51::type(state, -1) == lua51::typeFunction) {
+                NewGameCallback callback;
+                callback.mod = mod.id;
+                callback.function = lua51::reference(state);
+                p_newGameCallbacks.push_back(std::move(callback));
+            } else {
+                lua51::pop(state, 1);
+            }
+        }
+
+        if (previous >= 0) {
+            lua51::rawGetIndex(state, lua51::registryIndex, previous);
+        } else {
+            lua51::pushNil(state);
+        }
+        lua51::setGlobal(state, "OnNewGame");
+        lua51::unreference(state, previous);
+        lua51::setTop(state, top);
+    }
+
+    if (p_newGameCallbacks.empty()) {
+        p_newGameState = nullptr;
+        return false;
+    }
+    return true;
+}
+
+bool mod_manager::stepNewGame() {
+    if (p_newGameState == nullptr || p_newGameCallbacks.empty()) {
+        return true;
+    }
+
+    if (p_backdropGui >= 0) {
+        drawBackdrop();
+    }
+
+    bool waiting = false;
+    for (NewGameCallback& callback : p_newGameCallbacks) {
+        if (callback.done) {
+            continue;
+        }
+
+        const int top = lua51::getTop(p_newGameState);
+        lua51::rawGetIndex(p_newGameState, lua51::registryIndex, callback.function);
+        if (lua51::pcall(p_newGameState, 0, 1, 0) != 0) {
+            const char* const message = lua51::toString(p_newGameState, -1);
+            const char* error = message;
+            if (error == nullptr) {
+                error = "unknown error";
+            }
+            sampo::log::error("OnNewGame failed: /arrow Mod: %s /arrow Error: %s", callback.mod.c_str(), error);
+            callback.done = true;
+        } else if (lua51::type(p_newGameState, -1) == lua51::typeBoolean && !lua51::toBoolean(p_newGameState, -1)) {
+            waiting = true;
+        } else {
+            callback.done = true;
+        }
+        lua51::setTop(p_newGameState, top);
+    }
+
+    if (waiting) {
+        createBackdrop();
+        return false;
+    }
+    return true;
+}
+
+void mod_manager::releaseNewGame() {
+    destroyBackdrop();
+    if (p_newGameState != nullptr) {
+        for (const NewGameCallback& callback : p_newGameCallbacks) {
+            lua51::unreference(p_newGameState, callback.function);
+        }
+    }
+    p_newGameCallbacks.clear();
+    p_newGameState = nullptr;
+}
+
 void mod_manager::draw(float top) {
     const Snapshot current = snapshot();
     const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
     ImGui::SetNextWindowPos(ImVec2(0.0f, top), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(displaySize.x, displaySize.y - top), ImGuiCond_Always);
-    ImGui::SetNextWindowBgAlpha(0.88f);
     constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings;
     if (ImGui::Begin("##ModManager", nullptr, flags)) {
         if (ImGui::Button("Refresh")) {
@@ -887,7 +1128,7 @@ void mod_manager::draw(float top) {
         }
         if (!current.error.empty()) {
             ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.95f, 0.24f, 0.22f, 1.0f), "%s", current.error.c_str());
+            ImGui::TextColored(settings::guiDangerColor(), "%s", current.error.c_str());
         }
 
         const float gap = ImGui::GetStyle().ItemSpacing.x;
@@ -904,6 +1145,7 @@ void mod_manager::draw(float top) {
         ImGui::BeginChild("##DetailsPanel", ImVec2(-1.0f, -1.0f), true);
         drawDetails(current.active);
         ImGui::EndChild();
+        mod_settings::draw();
     }
     ImGui::End();
 }

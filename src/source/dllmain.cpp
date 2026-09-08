@@ -3,6 +3,7 @@
 #include "mod_manager.h"
 #include "noita_mainmenu.h"
 #include "sdl2.h"
+#include "settings.h"
 #include "steam.h"
 #include "log.h"
 
@@ -10,10 +11,11 @@ namespace {
     DWORD WINAPI Initialize(LPVOID) {
         sampo::log::write("Initializing Sampo..");
         steam::init();
+        settings::init();
         lua51::init();
-        sdl2::init();
         mod_manager::init();
-        noita_mainmenu::init();
+        sdl2::init();
+        noita_mainmenu::init(settings::noitaModCheck(), settings::useDefaultBuildText(), settings::useDefaultModsScreen());
         return 0;
     }
 }

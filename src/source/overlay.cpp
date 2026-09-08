@@ -3,6 +3,7 @@
 #include "log.h"
 #include "mod_manager.h"
 #include "noita_mainmenu.h"
+#include "settings.h"
 
 #include <windows.h>
 #include <gl/GL.h>
@@ -24,7 +25,8 @@
 namespace {
     enum class Page {
         logs,
-        modManager
+        modManager,
+        settings
     };
 
     bool p_initialized = false;
@@ -378,80 +380,6 @@ namespace {
         glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
     }
 
-    void setTheme() {
-        ImGui::StyleColorsDark();
-        ImGuiStyle& style = ImGui::GetStyle();
-        style.WindowRounding = 0.0f;
-        style.ChildRounding = 0.0f;
-        style.FrameRounding = 0.0f;
-        style.PopupRounding = 0.0f;
-        style.ScrollbarRounding = 0.0f;
-        style.GrabRounding = 0.0f;
-        style.TabRounding = 0.0f;
-        style.WindowBorderSize = 1.0f;
-        style.ChildBorderSize = 1.0f;
-        style.PopupBorderSize = 1.0f;
-        style.FrameBorderSize = 1.0f;
-        style.TabBorderSize = 1.0f;
-        style.WindowPadding = ImVec2(8.0f, 7.0f);
-        style.FramePadding = ImVec2(6.0f, 4.0f);
-        style.ItemSpacing = ImVec2(7.0f, 5.0f);
-        style.CellPadding = ImVec2(10.0f, 6.0f);
-        style.ScrollbarSize = 12.0f;
-        style.GrabMinSize = 9.0f;
-
-        ImVec4* colors = style.Colors;
-        const ImVec4 parchment(0.72f, 0.66f, 0.52f, 1.00f);
-        const ImVec4 text(0.88f, 0.86f, 0.79f, 1.00f);
-        const ImVec4 muted(0.46f, 0.45f, 0.41f, 1.00f);
-        const ImVec4 amber(0.96f, 0.62f, 0.18f, 1.00f);
-        const ImVec4 red(0.84f, 0.25f, 0.16f, 1.00f);
-        const ImVec4 brown(0.30f, 0.19f, 0.09f, 0.96f);
-        const ImVec4 brownHover(0.43f, 0.28f, 0.12f, 0.98f);
-        colors[ImGuiCol_Text] = text;
-        colors[ImGuiCol_TextDisabled] = muted;
-        colors[ImGuiCol_WindowBg] = ImVec4(0.025f, 0.024f, 0.022f, 0.93f);
-        colors[ImGuiCol_ChildBg] = ImVec4(0.035f, 0.033f, 0.030f, 0.86f);
-        colors[ImGuiCol_PopupBg] = ImVec4(0.025f, 0.024f, 0.022f, 0.98f);
-        colors[ImGuiCol_Border] = parchment;
-        colors[ImGuiCol_BorderShadow] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-        colors[ImGuiCol_FrameBg] = ImVec4(0.095f, 0.09f, 0.08f, 0.94f);
-        colors[ImGuiCol_FrameBgHovered] = brown;
-        colors[ImGuiCol_FrameBgActive] = brownHover;
-        colors[ImGuiCol_TitleBg] = ImVec4(0.03f, 0.03f, 0.027f, 1.00f);
-        colors[ImGuiCol_TitleBgActive] = brown;
-        colors[ImGuiCol_MenuBarBg] = ImVec4(0.025f, 0.024f, 0.022f, 0.98f);
-        colors[ImGuiCol_ScrollbarBg] = ImVec4(0.025f, 0.024f, 0.022f, 0.75f);
-        colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.28f, 0.26f, 0.21f, 1.00f);
-        colors[ImGuiCol_ScrollbarGrabHovered] = parchment;
-        colors[ImGuiCol_ScrollbarGrabActive] = amber;
-        colors[ImGuiCol_CheckMark] = amber;
-        colors[ImGuiCol_SliderGrab] = parchment;
-        colors[ImGuiCol_SliderGrabActive] = amber;
-        colors[ImGuiCol_Button] = brown;
-        colors[ImGuiCol_ButtonHovered] = brownHover;
-        colors[ImGuiCol_ButtonActive] = red;
-        colors[ImGuiCol_Header] = ImVec4(0.25f, 0.17f, 0.09f, 0.92f);
-        colors[ImGuiCol_HeaderHovered] = brownHover;
-        colors[ImGuiCol_HeaderActive] = red;
-        colors[ImGuiCol_Separator] = ImVec4(0.50f, 0.45f, 0.35f, 0.72f);
-        colors[ImGuiCol_SeparatorHovered] = parchment;
-        colors[ImGuiCol_SeparatorActive] = amber;
-        colors[ImGuiCol_Tab] = ImVec4(0.06f, 0.055f, 0.048f, 1.00f);
-        colors[ImGuiCol_TabHovered] = brownHover;
-        colors[ImGuiCol_TabSelected] = brown;
-        colors[ImGuiCol_TabSelectedOverline] = parchment;
-        colors[ImGuiCol_TabDimmedSelected] = ImVec4(0.12f, 0.09f, 0.06f, 1.00f);
-        colors[ImGuiCol_TabDimmedSelectedOverline] = muted;
-        colors[ImGuiCol_TableHeaderBg] = ImVec4(0.10f, 0.085f, 0.06f, 0.98f);
-        colors[ImGuiCol_TableBorderStrong] = parchment;
-        colors[ImGuiCol_TableBorderLight] = ImVec4(0.32f, 0.29f, 0.23f, 0.68f);
-        colors[ImGuiCol_TableRowBgAlt] = ImVec4(0.10f, 0.075f, 0.045f, 0.20f);
-        colors[ImGuiCol_NavCursor] = amber;
-        colors[ImGuiCol_TextLink] = amber;
-        colors[ImGuiCol_PlotHistogram] = amber;
-    }
-
     void initialize() {
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
@@ -460,7 +388,7 @@ namespace {
         io.LogFilename = nullptr;
         io.BackendPlatformName = "Sampo Win32";
         io.BackendRendererName = "Sampo OpenGL";
-        setTheme();
+        settings::applyTheme();
         if (loadNoitaFont()) {
             installNoitaFont();
         }
@@ -527,6 +455,9 @@ namespace {
         }
         if (ImGui::MenuItem("Mod Manager", nullptr, p_page == Page::modManager)) {
             p_page = Page::modManager;
+        }
+        if (ImGui::MenuItem("Settings", nullptr, p_page == Page::settings)) {
+            p_page = Page::settings;
         }
         ImGui::EndMainMenuBar();
     }
@@ -623,7 +554,7 @@ namespace {
     }
 
     void drawColoredText(const std::string& text, std::size_t offset, const ImVec4& color) {
-        const ImVec4 blue(0.35f, 0.62f, 0.95f, 1.0f);
+        const ImVec4& blue = settings::logValueColor();
         const std::string visibleText = text.substr(offset);
         ImDrawList* const drawList = ImGui::GetWindowDrawList();
         const ImVec2 startPosition = ImGui::GetCursorScreenPos();
@@ -653,8 +584,8 @@ namespace {
         const std::size_t arrowPrefixLength = std::strlen(arrowPrefix);
         const bool isArrowLine = line.text.size() >= arrowPrefixLength &&
                                  line.text.compare(0, arrowPrefixLength, arrowPrefix) == 0;
-        const ImVec4 white(0.92f, 0.92f, 0.92f, 1.0f);
-        const ImVec4 red(0.95f, 0.24f, 0.22f, 1.0f);
+        const ImVec4& white = settings::logTextColor();
+        const ImVec4& red = settings::logErrorColor();
 
         if (!isArrowLine) {
             if (line.error) {
@@ -672,8 +603,8 @@ namespace {
         const float lineHeight = ImGui::GetTextLineHeight();
         const float arrowX = textPosition.x - 15.0f;
         const float arrowMiddleY = textPosition.y + lineHeight * 0.52f;
-        const ImVec4 gray(0.46f, 0.45f, 0.41f, 1.0f);
-        const ImVec4 darkRed(0.50f, 0.16f, 0.14f, 1.0f);
+        const ImVec4& gray = settings::logArrowColor();
+        const ImVec4& darkRed = settings::logErrorArrowColor();
         ImVec4 arrowTextColor = gray;
         if (line.error) {
             arrowTextColor = darkRed;
@@ -692,7 +623,6 @@ namespace {
         const float top = ImGui::GetFrameHeight();
         ImGui::SetNextWindowPos(ImVec2(0.0f, top), ImGuiCond_Always);
         ImGui::SetNextWindowSize(ImVec2(displaySize.x, displaySize.y - top), ImGuiCond_Always);
-        ImGui::SetNextWindowBgAlpha(0.88f);
         constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings;
         if (ImGui::Begin("##SampoLogs", nullptr, flags)) {
             ImGui::BeginChild("##SampoLogContents", ImVec2(-1.0f, -1.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
@@ -852,7 +782,7 @@ void overlay::draw() {
     }
     p_lastFrame = now;
     updateMouse();
-    noita_mainmenu::keepModsUnrestricted();
+    noita_mainmenu::updateModCheck();
 
     ImGui::NewFrame();
     if (!p_visible) {
@@ -862,8 +792,10 @@ void overlay::draw() {
         drawMenuBar();
         if (p_page == Page::logs) {
             drawLogs(io.DisplaySize);
-        } else {
+        } else if (p_page == Page::modManager) {
             mod_manager::draw(ImGui::GetFrameHeight());
+        } else {
+            settings::draw(ImGui::GetFrameHeight());
         }
     }
     ImGui::Render();

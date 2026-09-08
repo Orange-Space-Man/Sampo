@@ -2,6 +2,7 @@
 
 #include "log.h"
 #include "memory.h"
+#include "mod_manager.h"
 #include "noita.h"
 #include "overlay.h"
 
@@ -19,6 +20,8 @@
 
 extern "C" void __cdecl markMainMenu();
 extern "C" void hookMainMenuHeartbeat();
+extern "C" void hookBuildText();
+extern "C" volatile std::uintptr_t p_sampoNativeBuildTextAddress;
 
 namespace {
     constexpr const char* p_buildTextPrefix = "Noita - Build ";
@@ -29,7 +32,21 @@ namespace {
     std::string p_noitaTime;
     std::string p_sampoTime = __TIME__;
     std::string p_sampoBuildText;
+    std::string p_noitaBuildText;
+    memory::StringRef p_buildRef;
+    std::uint8_t* p_modsHandler = nullptr;
+    std::array<std::uint8_t, 17> p_originalModsButton{};
     bool p_initialized = false;
+    bool p_noitaModCheck = false;
+    bool p_defaultBuildText = false;
+    bool p_buildTextReady = false;
+    bool p_modsButtonReady = false;
+    using FinalNewGameStart = void(__fastcall*)(void*, void*);
+    FinalNewGameStart p_originalNewGameStart = nullptr;
+    void* volatile p_pendingGameMode = nullptr;
+    void* volatile p_pendingStartOptions = nullptr;
+    volatile LONG p_pendingWorldSeed = 0;
+    volatile LONG p_newGameActive = 0;
 
     bool fixDate(std::string& date) {
         if (date.size() != 11 || date[3] != ' ' || date[6] != ' ') {
@@ -76,48 +93,184 @@ namespace {
         return true;
     }
 
-    bool hookModsButton() {
-        std::uint8_t* const handler = reinterpret_cast<std::uint8_t*>(noita::noitaBase) + noita::modsClickHandlerRva;
-        constexpr std::array<std::uint8_t, 7> expected{0x80, 0x7C, 0x24, 0x3C, 0x00, 0x74, 0x3A};
-        if (std::memcmp(handler, expected.data(), expected.size()) != 0 || handler[7] != 0xA1 || handler[12] != 0xB9) {
-            sampo::log::error("Could not hook the Mods button: /arrow Unsupported noita.exe build /arrow Address: %p", handler);
+    bool writeModsButton(bool defaultScreen) {
+        if (!p_modsButtonReady || p_modsHandler == nullptr) {
             return false;
+        }
+
+        if (defaultScreen) {
+            if (!memory::write(p_modsHandler, p_originalModsButton.data(), p_originalModsButton.size())) {
+                sampo::log::error("Could not restore Noita's Mods button: /arrow Windows error: %lu", GetLastError());
+                return false;
+            }
+            sampo::log::write("Mods button updated: /arrow Screen: Noita");
+            return true;
         }
 
         std::array<std::uint8_t, 17> replacement{0x80, 0x7C, 0x24, 0x3C, 0x00, 0x74, 0x3A, 0xE8, 0, 0, 0, 0, 0xE9, 0, 0, 0, 0};
         const std::uintptr_t callback = reinterpret_cast<std::uintptr_t>(&openModManager);
-        const std::uintptr_t callbackReturn = reinterpret_cast<std::uintptr_t>(handler + 12);
+        const std::uintptr_t callbackReturn = reinterpret_cast<std::uintptr_t>(p_modsHandler + 12);
         const std::int32_t callbackDistance = static_cast<std::int32_t>(callback - callbackReturn);
         std::memcpy(replacement.data() + 8, &callbackDistance, sizeof(callbackDistance));
 
         const std::uintptr_t entryEnd = reinterpret_cast<std::uintptr_t>(noita::noitaBase) + noita::afterModsEntryRva;
-        const std::uintptr_t jumpReturn = reinterpret_cast<std::uintptr_t>(handler + replacement.size());
+        const std::uintptr_t jumpReturn = reinterpret_cast<std::uintptr_t>(p_modsHandler + replacement.size());
         const std::int32_t jumpDistance = static_cast<std::int32_t>(entryEnd - jumpReturn);
         std::memcpy(replacement.data() + 13, &jumpDistance, sizeof(jumpDistance));
-        if (!memory::write(handler, replacement.data(), replacement.size())) {
+        if (!memory::write(p_modsHandler, replacement.data(), replacement.size())) {
             sampo::log::error("Could not hook the Mods button: /arrow Windows error: %lu", GetLastError());
             return false;
         }
 
-        sampo::log::write("Mods button hooked: /arrow Address: %p", handler);
+        sampo::log::write("Mods button updated: /arrow Screen: Sampo");
         return true;
     }
 
-    bool removeModRestrictions() {
+    bool hookModsButton(bool defaultScreen) {
+        p_modsHandler = reinterpret_cast<std::uint8_t*>(noita::noitaBase) + noita::modsClickHandlerRva;
+        constexpr std::array<std::uint8_t, 7> expected{0x80, 0x7C, 0x24, 0x3C, 0x00, 0x74, 0x3A};
+        if (std::memcmp(p_modsHandler, expected.data(), expected.size()) != 0 || p_modsHandler[7] != 0xA1 || p_modsHandler[12] != 0xB9) {
+            sampo::log::error("Could not hook the Mods button: /arrow Unsupported noita.exe build /arrow Address: %p", p_modsHandler);
+            return false;
+        }
+
+        std::memcpy(p_originalModsButton.data(), p_modsHandler, p_originalModsButton.size());
+        p_modsButtonReady = true;
+        return writeModsButton(defaultScreen);
+    }
+
+    bool writeBuildText(bool defaultText) {
+        if (!p_buildTextReady || p_buildRef.text == nullptr || p_buildRef.instruction == nullptr) {
+            return false;
+        }
+
+        if (defaultText) {
+            if (!memory::write(p_buildRef.text, p_noitaBuildText.c_str(), p_noitaBuildText.size() + 1)) {
+                sampo::log::error("Could not restore Noita's build text: /arrow Windows error: %lu", GetLastError());
+                return false;
+            }
+            if (!memory::write_push(p_buildRef.instruction, p_buildRef.text)) {
+                sampo::log::error("Could not restore Noita's build text call: /arrow Windows error: %lu", GetLastError());
+                return false;
+            }
+            sampo::log::write("Build text updated: /arrow Style: Noita");
+            return true;
+        }
+
+        p_sampoNativeBuildTextAddress = reinterpret_cast<std::uintptr_t>(p_buildRef.text);
+        if (!memory::write_call(p_buildRef.instruction, reinterpret_cast<const void*>(&hookBuildText))) {
+            sampo::log::error("Error while hooking build text address: /arrow Windows error: %lu", GetLastError());
+            return false;
+        }
+
+        constexpr char hidden = '\0';
+        if (!memory::write(p_buildRef.text, &hidden, sizeof(hidden))) {
+            memory::write_push(p_buildRef.instruction, p_buildRef.text);
+            sampo::log::error("Could not hide the original build text: /arrow Windows error: %lu", GetLastError());
+            return false;
+        }
+        sampo::log::write("Build text updated: /arrow Style: Sampo");
+        return true;
+    }
+
+    bool writeModCheck(bool enabled) {
         std::uint8_t* const setter = reinterpret_cast<std::uint8_t*>(noita::noitaBase) + noita::modsUsedSetterRva;
         constexpr std::array<std::uint8_t, 6> expected{0xC6, 0x80, 0x20, 0x01, 0x00, 0x00};
         if (std::memcmp(setter, expected.data(), expected.size()) != 0 || (setter[6] != 0x00 && setter[6] != 0x01)) {
-            sampo::log::error("Could not remove Noita mod restrictions: /arrow Unsupported noita.exe build /arrow Address: %p", setter);
+            sampo::log::error("Could not change Noita mod check: /arrow Unsupported noita.exe build /arrow Address: %p", setter);
             return false;
         }
 
-        constexpr std::uint8_t unrestricted = 0;
-        if (!memory::write(setter + 6, &unrestricted, sizeof(unrestricted))) {
-            sampo::log::error("Could not remove Noita mod restrictions: /arrow Windows error: %lu", GetLastError());
+        std::uint8_t value = 0;
+        if (enabled) {
+            value = 1;
+        }
+        if (!memory::write(setter + 6, &value, sizeof(value))) {
+            sampo::log::error("Could not change Noita mod check: /arrow Windows error: %lu", GetLastError());
             return false;
         }
 
-        sampo::log::write("Noita mod restrictions removed: /arrow Address: %p", setter);
+        const char* state = "disabled";
+        if (enabled) {
+            state = "enabled";
+        }
+        sampo::log::write("Noita mod check updated: /arrow State: %s /arrow Address: %p", state, setter);
+        return true;
+    }
+
+    extern "C" std::uint32_t __cdecl applyPendingWorldSeed() {
+        std::uint8_t* const module = reinterpret_cast<std::uint8_t*>(noita::noitaBase);
+        if (module == nullptr) {
+            return 0;
+        }
+
+        std::uint32_t* const worldSeed = reinterpret_cast<std::uint32_t*>(module + noita::worldSeedRva);
+        const LONG pending = InterlockedExchange(&p_pendingWorldSeed, 0);
+        if (pending != 0) {
+            const std::uint32_t value = static_cast<std::uint32_t>(pending);
+            const std::uint8_t enabled = 1;
+            memory::write(worldSeed, &value, sizeof(value));
+            memory::write(module + noita::worldSeedOverrideFlagRva, &enabled, sizeof(enabled));
+        }
+        return *worldSeed;
+    }
+
+    void __fastcall startNewGame(void* gameMode, void* startOptions) {
+        if (InterlockedCompareExchange(&p_newGameActive, 0, 0) != 0) {
+            return;
+        }
+        if (!mod_manager::beginNewGame()) {
+            p_originalNewGameStart(gameMode, startOptions);
+            return;
+        }
+
+        InterlockedExchangePointer(&p_pendingGameMode, gameMode);
+        InterlockedExchangePointer(&p_pendingStartOptions, startOptions);
+        InterlockedExchange(&p_newGameActive, 1);
+    }
+
+    void updateNewGame() {
+        if (InterlockedCompareExchange(&p_newGameActive, 0, 0) == 0) {
+            return;
+        }
+        if (!mod_manager::stepNewGame()) {
+            return;
+        }
+
+        InterlockedExchange(&p_newGameActive, 0);
+        void* const gameMode = InterlockedExchangePointer(&p_pendingGameMode, nullptr);
+        void* const startOptions = InterlockedExchangePointer(&p_pendingStartOptions, nullptr);
+        mod_manager::releaseNewGame();
+        if (p_originalNewGameStart != nullptr) {
+            p_originalNewGameStart(gameMode, startOptions);
+        }
+    }
+
+    bool hookNewGame() {
+        std::uint8_t* const target = reinterpret_cast<std::uint8_t*>(noita::noitaBase) + noita::finalNewGameStartRva;
+        constexpr std::array<std::uint8_t, 8> expected{0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF8, 0x6A, 0xFF};
+        std::uint8_t* const seedCheck = reinterpret_cast<std::uint8_t*>(noita::noitaBase) + noita::worldSeedCheckRva;
+        const std::uint32_t expectedSeedAddress = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(noita::noitaBase) + noita::worldSeedRva);
+        if (std::memcmp(target, expected.data(), expected.size()) != 0 || seedCheck[0] != 0x83 || seedCheck[1] != 0x3D || seedCheck[6] != 0x00 || std::memcmp(seedCheck + 2, &expectedSeedAddress, sizeof(expectedSeedAddress)) != 0) {
+            sampo::log::error("Could not hook New Game: /arrow Unsupported noita.exe build /arrow Address: %p", target);
+            return false;
+        }
+
+        std::array<std::uint8_t, 7> seedReplacement{0xE8, 0, 0, 0, 0, 0x85, 0xC0};
+        const std::uintptr_t callback = reinterpret_cast<std::uintptr_t>(&applyPendingWorldSeed);
+        const std::uintptr_t callbackReturn = reinterpret_cast<std::uintptr_t>(seedCheck + 5);
+        const std::int32_t callbackDistance = static_cast<std::int32_t>(callback - callbackReturn);
+        std::memcpy(seedReplacement.data() + 1, &callbackDistance, sizeof(callbackDistance));
+        if (!memory::write(seedCheck, seedReplacement.data(), seedReplacement.size())) {
+            sampo::log::error("Could not hook the world seed: /arrow Windows error: %lu", GetLastError());
+            return false;
+        }
+
+        if (!memory::hook(target, reinterpret_cast<const void*>(&startNewGame), 6, reinterpret_cast<void**>(&p_originalNewGameStart))) {
+            sampo::log::error("Could not hook New Game start: /arrow Windows error: %lu", GetLastError());
+            return false;
+        }
+        sampo::log::write("New Game hooked: /arrow Address: %p /arrow Seed: %p", target, seedCheck);
         return true;
     }
 }
@@ -151,16 +304,17 @@ extern "C" __declspec(naked) void hookBuildText() {
     }
 }
 
-bool noita_mainmenu::init() {
+bool noita_mainmenu::init(bool noitaModCheck, bool defaultBuildText, bool defaultModsScreen) {
     sampo::log::write("Initializing Main Menu modifications..");
     if (noita::noitaBase == nullptr) {
         sampo::log::error("Could not modify main menu, noita base is null");
         return false;
     }
 
-    const bool modsButtonHooked = hookModsButton();
+    const bool modsButtonHooked = hookModsButton(defaultModsScreen);
     const bool mainMenuFrameHooked = hookMainMenuFrame();
-    const bool modRestrictionsRemoved = removeModRestrictions();
+    const bool modCheckSet = setNoitaModCheck(noitaModCheck);
+    const bool newGameHooked = hookNewGame();
 
     sampo::log::write("Locating noita build text..");
     memory::StringRef buildRef;
@@ -169,7 +323,9 @@ bool noita_mainmenu::init() {
         return false;
     }
 
-    const std::string buildText = buildRef.text;
+    p_buildRef = buildRef;
+    p_noitaBuildText = buildRef.text;
+    const std::string& buildText = p_noitaBuildText;
     const std::size_t dateStart = std::string_view(p_buildTextPrefix).size();
     const std::size_t timeSplit = buildText.find(" - ", dateStart);
     if (timeSplit == std::string::npos) {
@@ -183,28 +339,44 @@ bool noita_mainmenu::init() {
     }
     p_noitaTime = buildText.substr(timeSplit + 3);
     p_sampoBuildText = "Sampo - Build " + p_sampoDate + " - " + p_sampoTime;
-    p_sampoNativeBuildTextAddress = reinterpret_cast<std::uintptr_t>(buildRef.text);
+    p_sampoNativeBuildTextAddress = reinterpret_cast<std::uintptr_t>(p_buildRef.text);
     sampo::log::write("Build text found: /arrow Text: %s /arrow Date: %s /arrow Time: %s /arrow Address: %p", buildText.c_str(), p_noitaDate.c_str(), p_noitaTime.c_str(), p_sampoNativeBuildTextAddress);
-    sampo::log::write("Hooking build text address..");
-    if (!memory::write_call(buildRef.instruction, reinterpret_cast<const void*>(&hookBuildText))) {
-        sampo::log::error("Error while hooking build text address: /arrow Windows error: %lu", GetLastError());
-        return false;
-    }
-
-    sampo::log::write("Hiding original build text..");
-    constexpr char hidden = '\0';
-    if (!memory::write(buildRef.text, &hidden, sizeof(hidden))) {
-        memory::write_push(buildRef.instruction, buildRef.text);
-        sampo::log::error("Could not hide the original build text: /arrow Windows error: %lu", GetLastError());
-        return false;
-    }
+    p_buildTextReady = true;
+    const bool buildTextSet = setDefaultBuildText(defaultBuildText);
 
     p_initialized = true;
     sampo::log::write("Main menu modifications successful");
-    return modsButtonHooked && mainMenuFrameHooked && modRestrictionsRemoved;
+    return modsButtonHooked && mainMenuFrameHooked && modCheckSet && buildTextSet && newGameHooked;
 }
 
-void noita_mainmenu::keepModsUnrestricted() {
+bool noita_mainmenu::setNoitaModCheck(bool enabled) {
+    p_noitaModCheck = enabled;
+    if (noita::noitaBase == nullptr) {
+        return false;
+    }
+    return writeModCheck(enabled);
+}
+
+bool noita_mainmenu::setDefaultBuildText(bool enabled) {
+    if (!writeBuildText(enabled)) {
+        return false;
+    }
+    p_defaultBuildText = enabled;
+    return true;
+}
+
+bool noita_mainmenu::setDefaultModsScreen(bool enabled) {
+    return writeModsButton(enabled);
+}
+
+void noita_mainmenu::setWorldSeed(std::uint32_t seed) {
+    if (seed == 0) {
+        return;
+    }
+    InterlockedExchange(&p_pendingWorldSeed, static_cast<LONG>(seed));
+}
+
+void noita_mainmenu::updateModCheck() {
     if (noita::noitaBase == nullptr) {
         return;
     }
@@ -212,11 +384,16 @@ void noita_mainmenu::keepModsUnrestricted() {
     __try {
         const std::uintptr_t gameState = *reinterpret_cast<const std::uintptr_t*>(reinterpret_cast<std::uint8_t*>(noita::noitaBase) + noita::gameStatePointerRva);
         if (gameState != 0) {
-            *reinterpret_cast<std::uint8_t*>(gameState + noita::modsUsedFieldOffset) = 0;
+            std::uint8_t value = 0;
+            if (p_noitaModCheck) {
+                value = 1;
+            }
+            *reinterpret_cast<std::uint8_t*>(gameState + noita::modsUsedFieldOffset) = value;
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
     }
+    updateNewGame();
 }
 
 const std::string& noita_mainmenu::getSampoBuildText() {
@@ -228,7 +405,7 @@ const std::string& noita_mainmenu::getSampoBuildText() {
 }
 
 void noita_mainmenu::draw() {
-    if (!p_initialized) {
+    if (!p_initialized || p_defaultBuildText) {
         return;
     }
 

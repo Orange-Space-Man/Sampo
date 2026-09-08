@@ -4,6 +4,7 @@
 #include "lua51.h"
 #include "mod_manager.h"
 #include "noita_mainmenu.h"
+#include "seed.h"
 #include "steam.h"
 
 #include <windows.h>
@@ -1934,6 +1935,27 @@ namespace {
         return 1;
     }
 
+    int __cdecl setWorldSeed(lua51::lua_State* state) {
+        if (lua51::getTop(state) != 1 || lua51::type(state, 1) != lua51::typeNumber) {
+            return globalError(state, "SetWorldSeed", "expected one number");
+        }
+
+        const double value = lua51::toNumber(state, 1);
+        if (!std::isfinite(value) || value < 1.0 || value > 4294967295.0 || std::floor(value) != value) {
+            return globalError(state, "SetWorldSeed", "seed must be an integer from 1 to 4294967295");
+        }
+        noita_mainmenu::setWorldSeed(static_cast<std::uint32_t>(value));
+        return 0;
+    }
+
+    int __cdecl getGoodSeed(lua51::lua_State* state) {
+        if (lua51::getTop(state) != 0) {
+            return globalError(state, "GetGoodSeed", "expected no arguments");
+        }
+        lua51::pushNumber(state, static_cast<double>(seed::getGoodSeed()));
+        return 1;
+    }
+
     int __cdecl spawnFlask(lua51::lua_State* state) {
         const int arguments = lua51::getTop(state);
         if ((arguments != 3 && arguments != 4) || lua51::type(state, 1) != lua51::typeString || lua51::type(state, 2) != lua51::typeNumber || lua51::type(state, 3) != lua51::typeNumber || (arguments == 4 && lua51::type(state, 4) != lua51::typeNumber)) {
@@ -2651,6 +2673,8 @@ bool sampo_lua::load(lua51::lua_State* state) {
         { "SetWorldTime", &setWorldTime },
         { "GetWorldTime", &getWorldTime },
         { "GetWorldSeed", &getWorldSeed },
+        { "SetWorldSeed", &setWorldSeed },
+        { "GetGoodSeed", &getGoodSeed },
         { "SpawnFlask", &spawnFlask },
         { "SpawnPerk", &spawnPerk },
         { "CreateWand", &createWand },

@@ -19,6 +19,7 @@ namespace lua51 {
 	};
 	using LuaCFunction = int(__cdecl*)(lua_State*);
 
+	constexpr int registryIndex = -10000;
 	constexpr int globalsIndex = -10002;
 	constexpr int multiReturn = -1;
 	constexpr int typeNone = -1;
@@ -31,6 +32,7 @@ namespace lua51 {
 
 	bool init();
 	bool ready();
+	lua_State* getState();
 	int getTop(lua_State* state);
 	void setTop(lua_State* state, int index);
 	void pop(lua_State* state, int count);
@@ -39,6 +41,8 @@ namespace lua51 {
 	void setField(lua_State* state, int index, const char* name);
 	void rawGetIndex(lua_State* state, int index, int item);
 	void rawSetIndex(lua_State* state, int index, int item);
+	int reference(lua_State* state);
+	void unreference(lua_State* state, int reference);
 	void getGlobal(lua_State* state, const char* name);
 	void setGlobal(lua_State* state, const char* name);
 	void pushNil(lua_State* state);
@@ -56,6 +60,7 @@ namespace lua51 {
 	int fail(lua_State* state, const char* message);
 	int loadBuffer(lua_State* state, const char* source, std::size_t size, const char* name, const char* mode);
 	int loadString(lua_State* state, const char* source);
+	int loadFile(lua_State* state, const char* filename);
 	bool getStack(lua_State* state, int level, lua_Debug* debug);
 	bool getInfo(lua_State* state, const char* information, lua_Debug* debug);
 }

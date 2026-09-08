@@ -12,6 +12,7 @@ namespace memory {
     };
 
     bool hook_iat(HMODULE hModule, const char* module, const char* function, void* nFunction, void** oFunction);
+    bool hook(void* target, const void* replacement, std::size_t size, void** original);
     bool write(void* target, const void* source, std::size_t size);
     bool write_call(void* instruction, const void* target);
     bool write_push(void* instruction, const void* value);

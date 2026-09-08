@@ -116,6 +116,39 @@ namespace {
     }
 }
 
+bool memory::hook(void* target, const void* replacement, std::size_t size, void** original) {
+    if (target == nullptr || replacement == nullptr || original == nullptr || size < 5) {
+        return false;
+    }
+
+    const std::size_t trampolineSize = size + 5;
+    std::uint8_t* const trampoline = static_cast<std::uint8_t*>(VirtualAlloc(nullptr, trampolineSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+    if (trampoline == nullptr) {
+        return false;
+    }
+
+    std::memcpy(trampoline, target, size);
+    trampoline[size] = 0xE9;
+    const std::uintptr_t returnAddress = reinterpret_cast<std::uintptr_t>(target) + size;
+    const std::uintptr_t trampolineReturn = reinterpret_cast<std::uintptr_t>(trampoline) + trampolineSize;
+    const std::int32_t returnDistance = static_cast<std::int32_t>(returnAddress - trampolineReturn);
+    std::memcpy(trampoline + size + 1, &returnDistance, sizeof(returnDistance));
+
+    std::vector<std::uint8_t> patch(size, 0x90);
+    patch[0] = 0xE9;
+    const std::uintptr_t replacementAddress = reinterpret_cast<std::uintptr_t>(replacement);
+    const std::uintptr_t patchReturn = reinterpret_cast<std::uintptr_t>(target) + 5;
+    const std::int32_t replacementDistance = static_cast<std::int32_t>(replacementAddress - patchReturn);
+    std::memcpy(patch.data() + 1, &replacementDistance, sizeof(replacementDistance));
+    if (!write(target, patch.data(), patch.size())) {
+        VirtualFree(trampoline, 0, MEM_RELEASE);
+        return false;
+    }
+
+    *original = trampoline;
+    return true;
+}
+
 bool memory::hook_iat(HMODULE hModule, const char* module, const char* function, void* nFunction, void** oFunction) {
     unsigned char* const mBase = reinterpret_cast<unsigned char*>(hModule);
     if (mBase == nullptr) {

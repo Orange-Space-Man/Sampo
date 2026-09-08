@@ -44,7 +44,14 @@ namespace {
             return;
         }
 
-        const std::filesystem::path path = std::filesystem::path(executable).parent_path() / "sampo.log";
+        const std::filesystem::path noitaPath = std::filesystem::path(executable).parent_path();
+        const std::filesystem::path directory = noitaPath / "sampo";
+        const std::filesystem::path path = directory / "sampo.log";
+        std::error_code error;
+        std::filesystem::create_directories(directory, error);
+        if (!p_fileInitialized) {
+            std::filesystem::remove(noitaPath / "sampo.log", error);
+        }
         std::ios::openmode mode = std::ios::binary;
         if (p_fileInitialized) {
             mode |= std::ios::app;
