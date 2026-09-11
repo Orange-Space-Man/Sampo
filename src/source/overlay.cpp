@@ -4,6 +4,7 @@
 #include "mod_manager.h"
 #include "noita_mainmenu.h"
 #include "settings.h"
+#include "wand.h"
 
 #include <windows.h>
 #include <gl/GL.h>
@@ -450,6 +451,7 @@ namespace {
             return;
         }
 
+        wand::drawMenu();
         if (ImGui::MenuItem("Sampo Logs", nullptr, p_page == Page::logs)) {
             p_page = Page::logs;
         }

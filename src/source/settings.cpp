@@ -18,6 +18,8 @@ namespace {
         bool noitaModCheck = false;
         bool useDefaultBuildText = false;
         bool useDefaultModsScreen = false;
+        bool spellDescriptions = false;
+        bool wandComparison = false;
         ImVec4 guiText{0.88f, 0.86f, 0.79f, 1.00f};
         ImVec4 guiMuted{0.46f, 0.45f, 0.41f, 1.00f};
         ImVec4 guiBorder{0.72f, 0.66f, 0.52f, 1.00f};
@@ -123,6 +125,14 @@ namespace {
                 p_values.useDefaultModsScreen = value == "1" || value == "true";
                 continue;
             }
+            if (name == "spell_descriptions") {
+                p_values.spellDescriptions = value == "1" || value == "true";
+                continue;
+            }
+            if (name == "wand_comparison") {
+                p_values.wandComparison = value == "1" || value == "true";
+                continue;
+            }
 
             for (const ColorValue& color : p_colors) {
                 if (name == color.name) {
@@ -158,6 +168,18 @@ namespace {
         }
         file << "use_default_mods_screen=";
         if (p_values.useDefaultModsScreen) {
+            file << "1\n";
+        } else {
+            file << "0\n";
+        }
+        file << "spell_descriptions=";
+        if (p_values.spellDescriptions) {
+            file << "1\n";
+        } else {
+            file << "0\n";
+        }
+        file << "wand_comparison=";
+        if (p_values.wandComparison) {
             file << "1\n";
         } else {
             file << "0\n";
@@ -210,6 +232,14 @@ bool settings::useDefaultBuildText() {
 
 bool settings::useDefaultModsScreen() {
     return p_values.useDefaultModsScreen;
+}
+
+bool settings::spellDescriptions() {
+    return p_values.spellDescriptions;
+}
+
+bool settings::wandComparison() {
+    return p_values.wandComparison;
 }
 
 void settings::applyTheme() {
@@ -288,6 +318,8 @@ void settings::draw(float top) {
     bool modCheckChanged = false;
     bool buildTextChanged = false;
     bool modsScreenChanged = false;
+    bool spellDescriptionsChanged = false;
+    bool wandComparisonChanged = false;
 
     if (ImGui::Begin("##SampoSettings", nullptr, flags)) {
         ImGui::TextUnformatted("Sampo");
@@ -302,6 +334,14 @@ void settings::draw(float top) {
         ImGui::Separator();
         modCheckChanged = ImGui::Checkbox("Let Noita detect active mods", &p_values.noitaModCheck);
         ImGui::TextDisabled("When disabled, Noita will not mark the current run as modded.");
+        ImGui::Spacing();
+
+        ImGui::TextUnformatted("Built-in Mods");
+        ImGui::Separator();
+        spellDescriptionsChanged = ImGui::Checkbox("Spell descriptions", &p_values.spellDescriptions);
+        ImGui::TextDisabled("Shows each spell's description in its world pickup hint.");
+        wandComparisonChanged = ImGui::Checkbox("Wand comparisons", &p_values.wandComparison);
+        ImGui::TextDisabled("Colors dropped-wand stats against the wand currently held.");
         ImGui::Spacing();
 
         if (ImGui::BeginTable("##SettingColors", 2, ImGuiTableFlags_SizingStretchSame)) {
@@ -334,10 +374,14 @@ void settings::draw(float top) {
             const bool noitaModCheck = p_values.noitaModCheck;
             const bool useDefaultBuildText = p_values.useDefaultBuildText;
             const bool useDefaultModsScreen = p_values.useDefaultModsScreen;
+            const bool spellDescriptions = p_values.spellDescriptions;
+            const bool wandComparison = p_values.wandComparison;
             p_values = Values{};
             p_values.noitaModCheck = noitaModCheck;
             p_values.useDefaultBuildText = useDefaultBuildText;
             p_values.useDefaultModsScreen = useDefaultModsScreen;
+            p_values.spellDescriptions = spellDescriptions;
+            p_values.wandComparison = wandComparison;
             colorsChanged = true;
         }
         ImGui::SameLine();
@@ -370,7 +414,7 @@ void settings::draw(float top) {
     if (colorsChanged) {
         applyTheme();
     }
-    if (settingsChanged || colorsChanged) {
+    if (settingsChanged || colorsChanged || spellDescriptionsChanged || wandComparisonChanged) {
         save();
     }
 }

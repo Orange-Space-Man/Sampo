@@ -4,7 +4,10 @@
 #include "memory.h"
 #include "lua51.h"
 #include "sampo_lua.h"
+#include "qol_spell_descriptions.h"
+#include "qol_wand_comparison.h"
 #include "mod_settings.h"
+#include "wand.h"
 #include <cstdint>
 #include "log.h"
 
@@ -130,7 +133,11 @@ namespace lua51
     int __cdecl hookPCall(lua_State* state, int arg, int result, int error) {
         InterlockedExchangePointer(&p_oState, state);
         sampo_lua::load(state);
-        return f_oPCall(state, arg, result, error);
+        const int status = f_oPCall(state, arg, result, error);
+        spell_descriptions::update(state);
+        qol_wand_comparison::update(state);
+        wand::update(state);
+        return status;
     }
 
     int __cdecl hookLoadBuffer(lua_State* state, const char* buffer, size_t size, const char* name, const char* mode) {

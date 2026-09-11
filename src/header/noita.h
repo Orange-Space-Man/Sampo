@@ -20,5 +20,9 @@ namespace noita {
     constexpr std::uintptr_t modsUsedSetterRva = 0x002B3AD5;
     constexpr std::uintptr_t gameStatePointerRva = 0x00E05010;
     constexpr std::uintptr_t refreshModsRva = 0x00437A10;
+    constexpr std::uintptr_t wandDrawRva = 0x00765FB0;
+    constexpr std::uintptr_t wandHoverCallRva = 0x00790344;
+    constexpr std::uintptr_t entityManagerRva = 0x00E04B98;
+    constexpr std::uintptr_t entityGetRva = 0x0016EBA0;
     constexpr std::size_t modsUsedFieldOffset = 0x120;
 }

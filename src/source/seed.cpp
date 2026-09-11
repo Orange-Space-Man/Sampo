@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
-#include <queue>
 #include <string_view>
 #include <vector>
 
@@ -20,12 +19,6 @@ namespace {
     struct Candidate {
         std::uint32_t seed = 0;
         int score = 0;
-    };
-
-    struct WorseCandidate {
-        bool operator()(const Candidate& left, const Candidate& right) const {
-            return left.score > right.score;
-        }
     };
 
     struct Perk {
@@ -200,6 +193,39 @@ namespace {
             return static_cast<std::int32_t>(static_cast<std::uint32_t>(minimum) - static_cast<std::uint32_t>(converted));
         }
 
+        double randomUnit() {
+            step();
+            const float value = static_cast<float>(static_cast<double>(static_cast<std::int32_t>(p_state)) * p_randomScale);
+            return static_cast<double>(value);
+        }
+
+        double distribution(double minimum, double maximum, double mean, double sharpness) {
+            if (sharpness == 0.0) {
+                return minimum + randomUnit() * (maximum - minimum);
+            }
+
+            const float range = static_cast<float>(maximum - minimum);
+            const float middle = static_cast<float>((mean - minimum) / (maximum - minimum));
+            constexpr float pi = 3.141499996185302734375f;
+            for (int index = 0; index < 100; ++index) {
+                const float candidate = static_cast<float>(randomUnit());
+                const float roll = static_cast<float>(randomUnit());
+                const float distance = std::abs(candidate - middle);
+                if ((1.0f - distance) * 0.005f > roll) {
+                    return minimum + candidate * range;
+                }
+                if (distance < 0.5f) {
+                    const float angle = (0.5f - middle + candidate) * pi;
+                    const float sine = static_cast<float>(std::sin(static_cast<double>(angle)));
+                    const float power = static_cast<float>(std::pow(static_cast<double>(sine), sharpness));
+                    if (power >= roll) {
+                        return minimum + candidate * range;
+                    }
+                }
+            }
+            return minimum + randomUnit() * range;
+        }
+
     private:
         std::uint32_t p_state = 1;
 
@@ -284,6 +310,255 @@ namespace {
             }
         }
     };
+
+    enum class WandValue {
+        reload,
+        fireRate,
+        spread,
+        speed,
+        capacity,
+        shuffle,
+        actions
+    };
+
+    struct WandRange {
+        double probability;
+        double minimum;
+        double maximum;
+        double mean;
+        double sharpness;
+    };
+
+    struct Wand {
+        double cost = 0.0;
+        double capacity = 0.0;
+        double actions = 0.0;
+        double reload = 0.0;
+        double shuffle = 1.0;
+        double fireRate = 0.0;
+        double spread = 0.0;
+        double speed = 0.0;
+        double manaCharge = 0.0;
+        double manaMax = 0.0;
+        double forceUnshuffle = 0.0;
+        double rare = 0.0;
+    };
+
+    double clamp(double value, double minimum, double maximum) {
+        if (minimum > maximum) {
+            return clamp(value, maximum, minimum);
+        }
+        return (std::max)(minimum, (std::min)(maximum, value));
+    }
+
+    WandRange wandRange(WorldRandom& random, WandValue value) {
+        constexpr std::array<WandRange, 7> capacity{{
+            {1.0, 3.0, 10.0, 6.0, 2.0}, {0.1, 2.0, 7.0, 4.0, 4.0}, {0.05, 1.0, 5.0, 3.0, 4.0},
+            {0.15, 5.0, 11.0, 8.0, 2.0}, {0.12, 2.0, 20.0, 8.0, 4.0}, {0.15, 3.0, 12.0, 6.0, 6.0},
+            {1.0, 1.0, 20.0, 6.0, 0.0}
+        }};
+        constexpr std::array<WandRange, 4> reload{{
+            {1.0, 5.0, 60.0, 30.0, 2.0}, {0.5, 1.0, 100.0, 40.0, 2.0},
+            {0.02, 1.0, 100.0, 40.0, 0.0}, {0.35, 1.0, 240.0, 40.0, 0.0}
+        }};
+        constexpr std::array<WandRange, 4> fireRate{{
+            {1.0, 1.0, 30.0, 5.0, 2.0}, {0.1, 1.0, 50.0, 15.0, 3.0},
+            {0.1, -15.0, 15.0, 0.0, 3.0}, {0.45, 0.0, 35.0, 12.0, 0.0}
+        }};
+        constexpr std::array<WandRange, 2> spread{{
+            {1.0, -5.0, 10.0, 0.0, 3.0}, {0.1, -35.0, 35.0, 0.0, 0.0}
+        }};
+        constexpr std::array<WandRange, 5> speed{{
+            {1.0, 0.8, 1.2, 1.0, 6.0}, {0.05, 1.0, 2.0, 1.1, 3.0}, {0.05, 0.5, 1.0, 0.9, 3.0},
+            {1.0, 0.8, 1.2, 1.0, 0.0}, {0.001, 1.0, 10.0, 5.0, 2.0}
+        }};
+        constexpr std::array<WandRange, 4> actions{{
+            {1.0, 1.0, 3.0, 1.0, 3.0}, {0.2, 2.0, 4.0, 2.0, 8.0},
+            {0.05, 1.0, 5.0, 2.0, 2.0}, {1.0, 1.0, 5.0, 2.0, 0.0}
+        }};
+
+        const WandRange* ranges = nullptr;
+        std::size_t count = 0;
+        if (value == WandValue::capacity) {
+            ranges = capacity.data();
+            count = capacity.size();
+        } else if (value == WandValue::reload) {
+            ranges = reload.data();
+            count = reload.size();
+        } else if (value == WandValue::fireRate) {
+            ranges = fireRate.data();
+            count = fireRate.size();
+        } else if (value == WandValue::spread) {
+            ranges = spread.data();
+            count = spread.size();
+        } else if (value == WandValue::speed) {
+            ranges = speed.data();
+            count = speed.size();
+        } else {
+            ranges = actions.data();
+            count = actions.size();
+        }
+
+        double total = 0.0;
+        for (std::size_t index = 0; index < count; ++index) {
+            total += ranges[index].probability;
+        }
+        double roll = random.randomUnit() * total;
+        for (std::size_t index = 0; index < count; ++index) {
+            if (roll <= ranges[index].probability) {
+                return ranges[index];
+            }
+            roll -= ranges[index].probability;
+        }
+        return ranges[count - 1];
+    }
+
+    void shuffleWandValues(WorldRandom& random, WandValue* values, std::size_t count) {
+        for (int index = static_cast<int>(count) - 1; index >= 1; --index) {
+            const int other = random.random(0, index);
+            std::swap(values[index], values[other]);
+        }
+    }
+
+    void applyWandValue(WorldRandom& random, Wand& wand, WandValue value) {
+        const WandRange range = wandRange(random, value);
+        if (value == WandValue::reload) {
+            const double minimum = clamp(60.0 - wand.cost * 5.0, 1.0, 240.0);
+            wand.reload = clamp(std::round(random.distribution(range.minimum, range.maximum, range.mean, range.sharpness)), minimum, 1024.0);
+            wand.cost -= (60.0 - wand.reload) / 5.0;
+        } else if (value == WandValue::fireRate) {
+            const double minimum = clamp(16.0 - wand.cost, -50.0, 50.0);
+            wand.fireRate = clamp(std::round(random.distribution(range.minimum, range.maximum, range.mean, range.sharpness)), minimum, 50.0);
+            wand.cost -= 16.0 - wand.fireRate;
+        } else if (value == WandValue::spread) {
+            const double minimum = clamp(wand.cost / -1.5, -35.0, 35.0);
+            wand.spread = clamp(std::round(random.distribution(range.minimum, range.maximum, range.mean, range.sharpness)), minimum, 35.0);
+            wand.cost -= 16.0 - wand.spread;
+        } else if (value == WandValue::speed) {
+            wand.speed = random.distribution(range.minimum, range.maximum, range.mean, range.sharpness);
+        } else if (value == WandValue::capacity) {
+            double maximum = clamp(wand.cost / 5.0 + 6.0, 1.0, 20.0);
+            if (wand.forceUnshuffle == 1.0) {
+                maximum = (wand.cost - 15.0) / 5.0;
+                if (maximum > 6.0) {
+                    maximum = 6.0 + (wand.cost - 45.0) / 10.0;
+                }
+            }
+            maximum = clamp(maximum, 1.0, 20.0);
+            wand.capacity = clamp(std::round(random.distribution(range.minimum, range.maximum, range.mean, range.sharpness)), 1.0, maximum);
+            wand.cost -= (wand.capacity - 6.0) * 5.0;
+        } else if (value == WandValue::shuffle) {
+            const int roll = random.random(0, 1);
+            if ((roll == 1 || wand.forceUnshuffle == 1.0) && wand.cost >= 15.0 + wand.capacity * 5.0 && wand.capacity <= 9.0) {
+                wand.shuffle = 0.0;
+                wand.cost -= 15.0 + wand.capacity * 5.0;
+            }
+        } else if (value == WandValue::actions) {
+            const std::array<double, 5> costs{0.0, 5.0 + wand.capacity * 2.0, 15.0 + wand.capacity * 3.5, 35.0 + wand.capacity * 5.0, 45.0 + wand.capacity * wand.capacity};
+            int maximum = 1;
+            for (std::size_t index = 0; index < costs.size(); ++index) {
+                if (costs[index] <= wand.cost) {
+                    maximum = static_cast<int>(index) + 1;
+                }
+            }
+            maximum = static_cast<int>(clamp(maximum, 1.0, wand.capacity));
+            wand.actions = std::floor(clamp(std::round(random.distribution(range.minimum, range.maximum, range.mean, range.sharpness)), 1.0, maximum));
+            wand.cost -= costs[static_cast<std::size_t>(wand.actions) - 1];
+        }
+    }
+
+    Wand makeWand(std::uint32_t seed, double x, double y, bool forceUnshuffle) {
+        WorldRandom random(seed, x, y);
+        double cost = 30.0;
+        if (forceUnshuffle) {
+            cost = 25.0;
+        }
+        if (random.random(0, 100) < 50) {
+            cost += 5.0;
+        }
+        cost += random.random(-3, 3);
+
+        Wand wand;
+        wand.cost = cost;
+        wand.manaCharge = 50.0 + random.random(-5, 5);
+        wand.manaMax = 200.0 + random.random(-5, 5) * 10.0;
+        if (random.random(0, 100) < 20) {
+            wand.manaCharge = (50.0 + random.random(-5, 5)) / 5.0;
+            wand.manaMax = (200.0 + random.random(-5, 5) * 10.0) * 3.0;
+        }
+        if (random.random(0, 100) < 15) {
+            wand.manaCharge = (50.0 + random.random(-5, 5)) * 5.0;
+            wand.manaMax = (200.0 + random.random(-5, 5) * 10.0) / 3.0;
+        }
+        wand.manaMax = (std::max)(wand.manaMax, 50.0);
+        wand.manaCharge = (std::max)(wand.manaCharge, 10.0);
+        if (random.random(0, 100) < 21) {
+            wand.forceUnshuffle = 1.0;
+        }
+        if (random.random(0, 100) < 5) {
+            wand.rare = 1.0;
+            wand.cost += 65.0;
+        }
+
+        std::array<WandValue, 4> first{WandValue::reload, WandValue::fireRate, WandValue::spread, WandValue::speed};
+        std::array<WandValue, 2> last{WandValue::shuffle, WandValue::actions};
+        shuffleWandValues(random, first.data(), first.size());
+        if (wand.forceUnshuffle != 1.0) {
+            shuffleWandValues(random, last.data(), last.size());
+        }
+        for (const WandValue value : first) {
+            applyWandValue(random, wand, value);
+        }
+        applyWandValue(random, wand, WandValue::capacity);
+        for (const WandValue value : last) {
+            applyWandValue(random, wand, value);
+        }
+
+        if (wand.cost > 5.0 && random.random(0, 1000) < 995) {
+            if (wand.shuffle == 1.0) {
+                wand.capacity += wand.cost / 5.0;
+            } else {
+                wand.capacity += wand.cost / 10.0;
+            }
+            wand.cost = 0.0;
+        }
+        if (forceUnshuffle) {
+            wand.shuffle = 0.0;
+        }
+        if (random.random(0, 10000) <= 9999) {
+            wand.capacity = clamp(wand.capacity, 2.0, 26.0);
+        }
+        wand.capacity = (std::max)(wand.capacity, 2.0);
+        if (wand.reload >= 60.0) {
+            do {
+                wand.actions += 1.0;
+            } while (random.random(0, 100) < 70);
+            if (random.random(0, 100) < 50) {
+                int newActions = static_cast<int>(wand.capacity);
+                for (int index = 0; index < 6; ++index) {
+                    const int value = random.random(static_cast<int>(wand.actions), static_cast<int>(wand.capacity));
+                    newActions = (std::min)(newActions, value);
+                }
+                wand.actions = newActions;
+            }
+        }
+        wand.actions = clamp(wand.actions, 1.0, wand.capacity);
+        return wand;
+    }
+
+    int wandValue(const Wand& wand) {
+        int score = static_cast<int>(wand.capacity * 2.0 + wand.manaMax / 40.0 + wand.manaCharge / 20.0);
+        score -= static_cast<int>((std::max)(wand.reload, 0.0) / 8.0);
+        score -= static_cast<int>((std::max)(wand.fireRate, 0.0) / 5.0);
+        score -= static_cast<int>(std::abs(wand.spread) / 4.0);
+        if (wand.shuffle == 0.0) {
+            score += 18;
+        }
+        if (wand.rare != 0.0) {
+            score += 20;
+        }
+        return score;
+    }
 
     int recipeScore(AlchemyRandom& random, std::uint32_t seed) {
         std::array<int, 4> values{};
@@ -424,6 +699,28 @@ namespace {
             const bool wands = random.random(0, 100) > 50;
             if (wands) {
                 score += 18 - static_cast<int>(index) * 3;
+                int best = (std::numeric_limits<int>::min)();
+                int second = best;
+                for (int wandIndex = 0; wandIndex < 5; ++wandIndex) {
+                    const double rawX = -331.0 + static_cast<double>(wandIndex) * 26.4;
+                    const double x = std::nearbyint(rawX);
+                    WorldRandom shopRandom(seed, x, yPositions[index]);
+                    const bool shuffle = shopRandom.random(0, 100) <= 50;
+                    const Wand wand = makeWand(seed, x, yPositions[index], !shuffle);
+                    const int value = wandValue(wand);
+                    if (value > best) {
+                        second = best;
+                        best = value;
+                    } else if (value > second) {
+                        second = value;
+                    }
+                }
+                if (best != (std::numeric_limits<int>::min)()) {
+                    score += best / 3;
+                }
+                if (second != (std::numeric_limits<int>::min)()) {
+                    score += second / 5;
+                }
             }
         }
         return score;
@@ -441,35 +738,66 @@ namespace {
         }
         return result;
     }
+
+    std::uint32_t findSeed(bool good) {
+        std::vector<Candidate> finalists;
+        finalists.reserve(p_finalists);
+        std::uint32_t candidateSeed = firstSeed();
+        if (!good) {
+            candidateSeed ^= 0xA5A5A5A5;
+        }
+
+        for (std::size_t index = 0; index < p_seedCount; ++index) {
+            if (candidateSeed == 0) {
+                candidateSeed = 1;
+            }
+            const Candidate candidate{candidateSeed, alchemyScore(candidateSeed)};
+            if (finalists.size() < p_finalists) {
+                finalists.push_back(candidate);
+            } else {
+                std::size_t replacement = 0;
+                for (std::size_t finalist = 1; finalist < finalists.size(); ++finalist) {
+                    if (good && finalists[finalist].score < finalists[replacement].score) {
+                        replacement = finalist;
+                    }
+                    if (!good && finalists[finalist].score > finalists[replacement].score) {
+                        replacement = finalist;
+                    }
+                }
+                if (good && candidate.score > finalists[replacement].score) {
+                    finalists[replacement] = candidate;
+                }
+                if (!good && candidate.score < finalists[replacement].score) {
+                    finalists[replacement] = candidate;
+                }
+            }
+            ++candidateSeed;
+        }
+
+        Candidate best;
+        if (good) {
+            best.score = (std::numeric_limits<int>::min)();
+        } else {
+            best.score = (std::numeric_limits<int>::max)();
+        }
+        for (Candidate candidate : finalists) {
+            candidate.score += perkScore(candidate.seed);
+            candidate.score += wandShopScore(candidate.seed);
+            if (good && candidate.score > best.score) {
+                best = candidate;
+            }
+            if (!good && candidate.score < best.score) {
+                best = candidate;
+            }
+        }
+        return best.seed;
+    }
 }
 
 std::uint32_t seed::getGoodSeed() {
-    std::priority_queue<Candidate, std::vector<Candidate>, WorseCandidate> finalists;
-    std::uint32_t candidateSeed = firstSeed();
-    for (std::size_t index = 0; index < p_seedCount; ++index) {
-        if (candidateSeed == 0) {
-            candidateSeed = 1;
-        }
-        const Candidate candidate{candidateSeed, alchemyScore(candidateSeed)};
-        if (finalists.size() < p_finalists) {
-            finalists.push(candidate);
-        } else if (candidate.score > finalists.top().score) {
-            finalists.pop();
-            finalists.push(candidate);
-        }
-        ++candidateSeed;
-    }
+    return findSeed(true);
+}
 
-    Candidate best;
-    best.score = (std::numeric_limits<int>::min)();
-    while (!finalists.empty()) {
-        Candidate candidate = finalists.top();
-        finalists.pop();
-        candidate.score += perkScore(candidate.seed);
-        candidate.score += wandShopScore(candidate.seed);
-        if (candidate.score > best.score) {
-            best = candidate;
-        }
-    }
-    return best.seed;
+std::uint32_t seed::getBadSeed() {
+    return findSeed(false);
 }

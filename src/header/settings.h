@@ -7,6 +7,8 @@ namespace settings {
     bool noitaModCheck();
     bool useDefaultBuildText();
     bool useDefaultModsScreen();
+    bool spellDescriptions();
+    bool wandComparison();
     void applyTheme();
     void draw(float top);
     const ImVec4& guiDangerColor();

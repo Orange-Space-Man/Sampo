@@ -4,4 +4,5 @@
 
 namespace seed {
     std::uint32_t getGoodSeed();
+    std::uint32_t getBadSeed();
 }

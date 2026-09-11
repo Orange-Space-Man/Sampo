@@ -6,6 +6,7 @@
 #include "noita_mainmenu.h"
 #include "seed.h"
 #include "steam.h"
+#include "wand.h"
 
 #include <windows.h>
 
@@ -453,6 +454,22 @@ namespace {
         return result;
     }
 
+    bool setComponentObjectBoolean(lua51::lua_State* state, int component, const char* object, const char* field, bool value, std::string& error) {
+        const int top = lua51::getTop(state);
+        if (!beginCall(state, "ComponentObjectSetValue2", error)) {
+            lua51::setTop(state, top);
+            return false;
+        }
+
+        lua51::pushNumber(state, component);
+        lua51::pushString(state, object);
+        lua51::pushString(state, field);
+        lua51::pushBoolean(state, value);
+        const bool result = finishCall(state, "ComponentObjectSetValue2", 4, 0, error);
+        lua51::setTop(state, top);
+        return result;
+    }
+
     bool getComponentObjectNumber(lua51::lua_State* state, int component, const char* object, const char* field, double& value, std::string& error) {
         const int top = lua51::getTop(state);
         if (!beginCall(state, "ComponentObjectGetValue2", error)) {
@@ -508,6 +525,23 @@ namespace {
         } else {
             value = text;
         }
+        lua51::pop(state, 1);
+        return true;
+    }
+
+    bool readBooleanField(lua51::lua_State* state, int table, const char* name, bool& value, bool& found) {
+        lua51::getField(state, table, name);
+        found = lua51::type(state, -1) != lua51::typeNil;
+        if (!found) {
+            lua51::pop(state, 1);
+            return true;
+        }
+        if (lua51::type(state, -1) != lua51::typeBoolean) {
+            lua51::pop(state, 1);
+            return false;
+        }
+
+        value = lua51::toBoolean(state, -1);
         lua51::pop(state, 1);
         return true;
     }
@@ -1956,6 +1990,14 @@ namespace {
         return 1;
     }
 
+    int __cdecl getBadSeed(lua51::lua_State* state) {
+        if (lua51::getTop(state) != 0) {
+            return globalError(state, "GetBadSeed", "expected no arguments");
+        }
+        lua51::pushNumber(state, static_cast<double>(seed::getBadSeed()));
+        return 1;
+    }
+
     int __cdecl spawnFlask(lua51::lua_State* state) {
         const int arguments = lua51::getTop(state);
         if ((arguments != 3 && arguments != 4) || lua51::type(state, 1) != lua51::typeString || lua51::type(state, 2) != lua51::typeNumber || lua51::type(state, 3) != lua51::typeNumber || (arguments == 4 && lua51::type(state, 4) != lua51::typeNumber)) {
@@ -2049,6 +2091,19 @@ namespace {
             if (hasCastDelay && !setComponentObjectNumber(state, ability, "gunaction_config", "fire_rate_wait", castDelay, error)) {
                 return false;
             }
+
+            const char* const gunActionFields[] = { "spread_degrees", "speed_multiplier" };
+            for (const char* const field : gunActionFields) {
+                double value = 0.0;
+                bool found = false;
+                if (!readNumberField(state, abilityTable, field, value, found)) {
+                    error = std::string("EditWand: ability.") + field + " must be a number";
+                    return false;
+                }
+                if (found && !setComponentObjectNumber(state, ability, "gunaction_config", field, value, error)) {
+                    return false;
+                }
+            }
         }
 
         if (lua51::type(state, gunTable) == lua51::typeTable) {
@@ -2063,6 +2118,16 @@ namespace {
                 if (found && !setComponentObjectNumber(state, ability, "gun_config", field, value, error)) {
                     return false;
                 }
+            }
+
+            bool shuffle = false;
+            bool hasShuffle = false;
+            if (!readBooleanField(state, gunTable, "shuffle_deck_when_empty", shuffle, hasShuffle)) {
+                error = "EditWand: gun.shuffle_deck_when_empty must be a boolean";
+                return false;
+            }
+            if (hasShuffle && !setComponentObjectBoolean(state, ability, "gun_config", "shuffle_deck_when_empty", shuffle, error)) {
+                return false;
             }
         }
 
@@ -2531,6 +2596,37 @@ namespace {
         return 2;
     }
 
+    int __cdecl taskLoadWandFromFile(lua51::lua_State* state) {
+        if (lua51::getTop(state) != 1 || lua51::type(state, 1) != lua51::typeString) {
+            return taskError(state, "LoadWandFromFile", "expected one .wnd filename or path");
+        }
+
+        const char* const filename = lua51::toString(state, 1);
+        int entity = 0;
+        std::string error;
+        if (!wand::load(state, filename, entity, error)) {
+            return taskError(state, "LoadWandFromFile", error.c_str());
+        }
+        lua51::pushNumber(state, static_cast<double>(entity));
+        return 1;
+    }
+
+    int __cdecl taskExportWand(lua51::lua_State* state) {
+        if (lua51::getTop(state) != 2 || lua51::type(state, 1) != lua51::typeNumber || lua51::type(state, 2) != lua51::typeString) {
+            return taskError(state, "ExportWand", "expected a wand ID and .wnd filename");
+        }
+
+        const int entity = static_cast<int>(lua51::toNumber(state, 1));
+        const char* const filename = lua51::toString(state, 2);
+        std::string path;
+        std::string error;
+        if (!wand::save(state, entity, filename, path, error)) {
+            return taskError(state, "ExportWand", error.c_str());
+        }
+        lua51::pushString(state, path.c_str());
+        return 1;
+    }
+
     bool hasFunction(lua51::lua_State* state, int table, const char* name, lua51::LuaCFunction function) {
         lua51::getField(state, table, name);
         const bool found = lua51::type(state, -1) == lua51::typeFunction && lua51::toFunction(state, -1) == function;
@@ -2665,7 +2761,9 @@ bool sampo_lua::load(lua51::lua_State* state) {
         { "CopyToClipboard", &taskCopyToClipboard },
         { "GetClipboardText", &taskGetClipboardText },
         { "GetSampoVersion", &taskGetSampoVersion },
-        { "GetCurrentMod", &taskGetCurrentMod }
+        { "GetCurrentMod", &taskGetCurrentMod },
+        { "LoadWandFromFile", &taskLoadWandFromFile },
+        { "ExportWand", &taskExportWand }
     };
     const ApiFunction globalFunctions[] = {
         { "EntityGetChild", &entityGetChild },
@@ -2675,6 +2773,7 @@ bool sampo_lua::load(lua51::lua_State* state) {
         { "GetWorldSeed", &getWorldSeed },
         { "SetWorldSeed", &setWorldSeed },
         { "GetGoodSeed", &getGoodSeed },
+        { "GetBadSeed", &getBadSeed },
         { "SpawnFlask", &spawnFlask },
         { "SpawnPerk", &spawnPerk },
         { "CreateWand", &createWand },
