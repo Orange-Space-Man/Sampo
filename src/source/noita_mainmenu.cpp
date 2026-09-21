@@ -43,6 +43,7 @@ namespace {
     bool p_modsButtonReady = false;
     using FinalNewGameStart = void(__fastcall*)(void*, void*);
     FinalNewGameStart p_originalNewGameStart = nullptr;
+    noita_mainmenu::ContinueNewGame p_pendingContinuation = nullptr;
     void* volatile p_pendingGameMode = nullptr;
     void* volatile p_pendingStartOptions = nullptr;
     volatile LONG p_pendingWorldSeed = 0;
@@ -215,18 +216,29 @@ namespace {
         return *worldSeed;
     }
 
-    void __fastcall startNewGame(void* gameMode, void* startOptions) {
+    bool deferNewGame(void* gameMode, void* startOptions, noita_mainmenu::ContinueNewGame continuation) {
         if (InterlockedCompareExchange(&p_newGameActive, 0, 0) != 0) {
-            return;
+            return true;
         }
         if (!mod_manager::beginNewGame()) {
-            p_originalNewGameStart(gameMode, startOptions);
-            return;
+            return false;
         }
 
         InterlockedExchangePointer(&p_pendingGameMode, gameMode);
         InterlockedExchangePointer(&p_pendingStartOptions, startOptions);
+        p_pendingContinuation = continuation;
         InterlockedExchange(&p_newGameActive, 1);
+        return true;
+    }
+
+    void __cdecl continueNativeNewGame(void* gameMode, void* startOptions) {
+        p_originalNewGameStart(gameMode, startOptions);
+    }
+
+    void __fastcall startNewGame(void* gameMode, void* startOptions) {
+        if (!deferNewGame(gameMode, startOptions, &continueNativeNewGame)) {
+            p_originalNewGameStart(gameMode, startOptions);
+        }
     }
 
     void updateNewGame() {
@@ -240,18 +252,20 @@ namespace {
         InterlockedExchange(&p_newGameActive, 0);
         void* const gameMode = InterlockedExchangePointer(&p_pendingGameMode, nullptr);
         void* const startOptions = InterlockedExchangePointer(&p_pendingStartOptions, nullptr);
+        const noita_mainmenu::ContinueNewGame continuation = p_pendingContinuation;
+        p_pendingContinuation = nullptr;
         mod_manager::releaseNewGame();
-        if (p_originalNewGameStart != nullptr) {
-            p_originalNewGameStart(gameMode, startOptions);
+        if (continuation != nullptr) {
+            continuation(gameMode, startOptions);
         }
     }
 
-    bool hookNewGame() {
+    bool hookNewGame(bool installStartHook) {
         std::uint8_t* const target = reinterpret_cast<std::uint8_t*>(noita::noitaBase) + noita::finalNewGameStartRva;
         constexpr std::array<std::uint8_t, 8> expected{0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF8, 0x6A, 0xFF};
         std::uint8_t* const seedCheck = reinterpret_cast<std::uint8_t*>(noita::noitaBase) + noita::worldSeedCheckRva;
         const std::uint32_t expectedSeedAddress = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(noita::noitaBase) + noita::worldSeedRva);
-        if (std::memcmp(target, expected.data(), expected.size()) != 0 || seedCheck[0] != 0x83 || seedCheck[1] != 0x3D || seedCheck[6] != 0x00 || std::memcmp(seedCheck + 2, &expectedSeedAddress, sizeof(expectedSeedAddress)) != 0) {
+        if ((installStartHook && std::memcmp(target, expected.data(), expected.size()) != 0) || seedCheck[0] != 0x83 || seedCheck[1] != 0x3D || seedCheck[6] != 0x00 || std::memcmp(seedCheck + 2, &expectedSeedAddress, sizeof(expectedSeedAddress)) != 0) {
             sampo::log::error("Could not hook New Game: /arrow Unsupported noita.exe build /arrow Address: %p", target);
             return false;
         }
@@ -264,6 +278,11 @@ namespace {
         if (!memory::write(seedCheck, seedReplacement.data(), seedReplacement.size())) {
             sampo::log::error("Could not hook the world seed: /arrow Windows error: %lu", GetLastError());
             return false;
+        }
+
+        if (!installStartHook) {
+            sampo::log::write("New Game seed hook installed for WANd compatibility: /arrow Seed: %p", seedCheck);
+            return true;
         }
 
         if (!memory::hook(target, reinterpret_cast<const void*>(&startNewGame), 6, reinterpret_cast<void**>(&p_originalNewGameStart))) {
@@ -304,7 +323,7 @@ extern "C" __declspec(naked) void hookBuildText() {
     }
 }
 
-bool noita_mainmenu::init(bool noitaModCheck, bool defaultBuildText, bool defaultModsScreen) {
+bool noita_mainmenu::init(bool noitaModCheck, bool defaultBuildText, bool defaultModsScreen, bool installNewGameHook) {
     sampo::log::write("Initializing Main Menu modifications..");
     if (noita::noitaBase == nullptr) {
         sampo::log::error("Could not modify main menu, noita base is null");
@@ -314,7 +333,7 @@ bool noita_mainmenu::init(bool noitaModCheck, bool defaultBuildText, bool defaul
     const bool modsButtonHooked = hookModsButton(defaultModsScreen);
     const bool mainMenuFrameHooked = hookMainMenuFrame();
     const bool modCheckSet = setNoitaModCheck(noitaModCheck);
-    const bool newGameHooked = hookNewGame();
+    const bool newGameHooked = hookNewGame(installNewGameHook);
 
     sampo::log::write("Locating noita build text..");
     memory::StringRef buildRef;
@@ -347,6 +366,13 @@ bool noita_mainmenu::init(bool noitaModCheck, bool defaultBuildText, bool defaul
     p_initialized = true;
     sampo::log::write("Main menu modifications successful");
     return modsButtonHooked && mainMenuFrameHooked && modCheckSet && buildTextSet && newGameHooked;
+}
+
+bool noita_mainmenu::deferNewGame(void* gameMode, void* startOptions, ContinueNewGame continuation) {
+    if (continuation == nullptr) {
+        return false;
+    }
+    return ::deferNewGame(gameMode, startOptions, continuation);
 }
 
 bool noita_mainmenu::setNoitaModCheck(bool enabled) {

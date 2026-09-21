@@ -13,8 +13,8 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{75489ae4-45ad-4abb-9335-1c30defc0b09}</ProjectGuid>
-    <RootNamespace>Sampo</RootNamespace>
+    <ProjectGuid>{680AA5A8-9220-47D7-AEF5-780F36316540}</ProjectGuid>
+    <RootNamespace>winmm</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -32,10 +32,8 @@
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <ImportGroup Label="ExtensionSettings">
-  </ImportGroup>
-  <ImportGroup Label="Shared">
-  </ImportGroup>
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared" />
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
@@ -43,31 +41,27 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+  <PropertyGroup>
     <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
-    <TargetName>Sampo</TargetName>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
-    <TargetName>Sampo</TargetName>
+    <IntDir>$(Platform)\$(Configuration)\</IntDir>
+    <TargetName>winmm</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;_DEBUG;SAMPO_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>$(ProjectDir)include\imgui;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <ModuleDefinitionFile>Sampo.def</ModuleDefinitionFile>
-      <AdditionalDependencies>opengl32.lib;ole32.lib;windowscodecs.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ModuleDefinitionFile>..\Sampo\winmm.def</ModuleDefinitionFile>
+      <ProgramDatabaseFile>$(IntDir)$(TargetName).pdb</ProgramDatabaseFile>
+      <ImportLibrary>$(IntDir)$(TargetName).lib</ImportLibrary>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -76,69 +70,34 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;NDEBUG;SAMPO_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>$(ProjectDir)include\imgui;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <ModuleDefinitionFile>Sampo.def</ModuleDefinitionFile>
-      <AdditionalDependencies>opengl32.lib;ole32.lib;windowscodecs.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ModuleDefinitionFile>..\Sampo\winmm.def</ModuleDefinitionFile>
+      <ProgramDatabaseFile>$(IntDir)$(TargetName).pdb</ProgramDatabaseFile>
+      <ImportLibrary>$(IntDir)$(TargetName).lib</ImportLibrary>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="debug.cpp" />
-    <ClCompile Include="dllmain.cpp" />
-    <ClCompile Include="include\imgui\imgui.cpp" />
-    <ClCompile Include="include\imgui\imgui_draw.cpp" />
-    <ClCompile Include="include\imgui\imgui_tables.cpp" />
-    <ClCompile Include="include\imgui\imgui_widgets.cpp" />
-    <ClCompile Include="log.cpp" />
-    <ClCompile Include="lua51.cpp" />
-    <ClCompile Include="memory.cpp" />
-    <ClCompile Include="mod_manager.cpp" />
-    <ClCompile Include="mod_settings.cpp" />
-    <ClCompile Include="noita_mainmenu.cpp" />
-    <ClCompile Include="overlay.cpp" />
-    <ClCompile Include="sampo_lua.cpp" />
-    <ClCompile Include="sdl2.cpp" />
-    <ClCompile Include="seed.cpp" />
-    <ClCompile Include="qol_spell_descriptions.cpp" />
-    <ClCompile Include="qol_wand_comparison.cpp" />
-    <ClCompile Include="settings.cpp" />
-    <ClCompile Include="steam.cpp" />
-    <ClCompile Include="wand.cpp" />
-    <ClCompile Include="wand_support.cpp" />
+    <ClCompile Include="..\Sampo\winmm.cpp" />
+    <ClCompile Include="..\Sampo\winmm_loader.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="debug.h" />
-    <ClInclude Include="log.h" />
-    <ClInclude Include="lua51.h" />
-    <ClInclude Include="memory.h" />
-    <ClInclude Include="mod_manager.h" />
-    <ClInclude Include="mod_settings.h" />
-    <ClInclude Include="noita.h" />
-    <ClInclude Include="noita_mainmenu.h" />
-    <ClInclude Include="overlay.h" />
-    <ClInclude Include="sampo_lua.h" />
-    <ClInclude Include="sdl2.h" />
-    <ClInclude Include="seed.h" />
-    <ClInclude Include="qol_spell_descriptions.h" />
-    <ClInclude Include="qol_wand_comparison.h" />
-    <ClInclude Include="settings.h" />
-    <ClInclude Include="steam.h" />
-    <ClInclude Include="wand.h" />
-    <ClInclude Include="wand_support.h" />
+    <None Include="..\Sampo\winmm.def" />
+    <None Include="..\Sampo\winmm_exports.inc" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Sampo.def" />
+    <ProjectReference Include="..\Sampo\Sampo.vcxproj">
+      <Project>{75489ae4-45ad-4abb-9335-1c30defc0b09}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <ImportGroup Label="ExtensionTargets">
-  </ImportGroup>
+  <ImportGroup Label="ExtensionTargets" />
 </Project>

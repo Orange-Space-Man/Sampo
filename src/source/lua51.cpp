@@ -15,7 +15,6 @@ namespace lua51
 {
     using LuaCFunction = int(__cdecl*)(lua_State*);
     using LuaLNewState = lua_State * (__cdecl*)();
-    using LuaLOpenLibs = void(__cdecl*)(lua_State*);
     using LuaClose = void(__cdecl*)(lua_State*);
     using LuaPCall = int(__cdecl*)(lua_State*, int, int, int);
     using LuaLLoadBufferX = int(__cdecl*)(lua_State*, const char*, size_t, const char*, const char*);
@@ -36,32 +35,18 @@ namespace lua51
     using LuaSetField = void(__cdecl*)(lua_State*, int, const char*);
     using LuaRawGetIndex = void(__cdecl*)(lua_State*, int, int);
     using LuaRawSetIndex = void(__cdecl*)(lua_State*, int, int);
-    using LuaNext = int(__cdecl*)(lua_State*, int);
     using LuaType = int(__cdecl*)(lua_State*, int);
     using LuaToLString = const char* (__cdecl*)(lua_State*, int, size_t*);
     using LuaToCFunction = LuaCFunction(__cdecl*)(lua_State*, int);
-    using LuaToPointer = const void* (__cdecl*)(lua_State*, int);
     using LuaLRef = int(__cdecl*)(lua_State*, int);
     using LuaLUnref = void(__cdecl*)(lua_State*, int, int);
-    using LuaHook = void(__cdecl*)(lua_State*, lua_Debug*);
-    using LuaSetHook = int(__cdecl*)(lua_State*, LuaHook, int, int);
-    using LuaGetHook = LuaHook(__cdecl*)(lua_State*);
-    using LuaGetHookMask = int(__cdecl*)(lua_State*);
-    using LuaGetHookCount = int(__cdecl*)(lua_State*);
     using LuaGetInfo = int(__cdecl*)(lua_State*, const char*, lua_Debug*);
     using LuaGetStack = int(__cdecl*)(lua_State*, int, lua_Debug*);
-    using LuaGetLocal = const char* (__cdecl*)(lua_State*, const lua_Debug*, int);
-    using LuaGetUpvalue = const char* (__cdecl*)(lua_State*, int, int);
     using LuaToBoolean = int(__cdecl*)(lua_State*, int);
     using LuaToNumber = double(__cdecl*)(lua_State*, int);
-    using LuaTypeName = const char* (__cdecl*)(lua_State*, int);
-
-    constexpr int lRegistryIndex = -10000;
-    constexpr int lGlobalsIndex = -10002;
 
     void* volatile p_oState = nullptr;
     LuaLNewState f_oNewState = nullptr;
-    LuaLOpenLibs f_openLibs = nullptr;
     LuaClose f_oClose = nullptr;
     LuaPCall f_oPCall = nullptr;
     LuaLLoadBufferX f_oLoadBuffer = nullptr;
@@ -84,24 +69,15 @@ namespace lua51
     LuaSetField f_setField = nullptr;
     LuaRawGetIndex f_rawGetIndex = nullptr;
     LuaRawSetIndex f_rawSetIndex = nullptr;
-    LuaNext f_next = nullptr;
     LuaType f_type = nullptr;
     LuaToLString f_toLString = nullptr;
     LuaToCFunction f_toCFunction = nullptr;
-    LuaToPointer f_toPointer = nullptr;
     LuaLRef f_lRef = nullptr;
     LuaLUnref f_lUnref = nullptr;
-    LuaSetHook f_setHook = nullptr;
-    LuaGetHook f_getHook = nullptr;
-    LuaGetHookMask f_getHookMask = nullptr;
-    LuaGetHookCount f_getHookCount = nullptr;
     LuaGetInfo f_getInfo = nullptr;
     LuaGetStack f_getStack = nullptr;
-    LuaGetLocal f_getLocal = nullptr;
-    LuaGetUpvalue f_getUpvalue = nullptr;
     LuaToBoolean f_toBoolean = nullptr;
     LuaToNumber f_toNumber = nullptr;
-    LuaTypeName f_typeName = nullptr;
 
     const char* boolText(bool value) {
         if (value) {
@@ -185,7 +161,6 @@ namespace lua51
         f_createTable = LuaExport<LuaCreateTable>(noita::lua51Base, "lua_createtable");
         f_lError = LuaExport<LuaLError>(noita::lua51Base, "luaL_error");
         f_pCall = LuaExport<LuaPCall>(noita::lua51Base, "lua_pcall");
-        f_openLibs = LuaExport<LuaLOpenLibs>(noita::lua51Base, "luaL_openlibs");
         f_getTop = LuaExport<LuaGetTop>(noita::lua51Base, "lua_gettop");
         f_setTop = LuaExport<LuaSetTop>(noita::lua51Base, "lua_settop");
         f_pushNil = LuaExport<LuaPushNil>(noita::lua51Base, "lua_pushnil");
@@ -198,24 +173,15 @@ namespace lua51
         f_setField = LuaExport<LuaSetField>(noita::lua51Base, "lua_setfield");
         f_rawGetIndex = LuaExport<LuaRawGetIndex>(noita::lua51Base, "lua_rawgeti");
         f_rawSetIndex = LuaExport<LuaRawSetIndex>(noita::lua51Base, "lua_rawseti");
-        f_next = LuaExport<LuaNext>(noita::lua51Base, "lua_next");
         f_type = LuaExport<LuaType>(noita::lua51Base, "lua_type");
         f_toLString = LuaExport<LuaToLString>(noita::lua51Base, "lua_tolstring");
         f_toCFunction = LuaExport<LuaToCFunction>(noita::lua51Base, "lua_tocfunction");
-        f_toPointer = LuaExport<LuaToPointer>(noita::lua51Base, "lua_topointer");
         f_lRef = LuaExport<LuaLRef>(noita::lua51Base, "luaL_ref");
         f_lUnref = LuaExport<LuaLUnref>(noita::lua51Base, "luaL_unref");
-        f_setHook = LuaExport<LuaSetHook>(noita::lua51Base, "lua_sethook");
-        f_getHook = LuaExport<LuaGetHook>(noita::lua51Base, "lua_gethook");
-        f_getHookMask = LuaExport<LuaGetHookMask>(noita::lua51Base, "lua_gethookmask");
-        f_getHookCount = LuaExport<LuaGetHookCount>(noita::lua51Base, "lua_gethookcount");
         f_getInfo = LuaExport<LuaGetInfo>(noita::lua51Base, "lua_getinfo");
         f_getStack = LuaExport<LuaGetStack>(noita::lua51Base, "lua_getstack");
-        f_getLocal = LuaExport<LuaGetLocal>(noita::lua51Base, "lua_getlocal");
-        f_getUpvalue = LuaExport<LuaGetUpvalue>(noita::lua51Base, "lua_getupvalue");
         f_toBoolean = LuaExport<LuaToBoolean>(noita::lua51Base, "lua_toboolean");
         f_toNumber = LuaExport<LuaToNumber>(noita::lua51Base, "lua_tonumber");
-        f_typeName = LuaExport<LuaTypeName>(noita::lua51Base, "lua_typename");
 
         sampo::log::write("Hooking lua functions");
         const bool newStateHooked = memory::hook_iat(noita::noitaBase, "lua51.dll", "luaL_newstate", reinterpret_cast<void*>(&hookLNewState), reinterpret_cast<void**>(&f_oNewState));

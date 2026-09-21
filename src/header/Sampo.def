@@ -1,0 +1,4 @@
+LIBRARY Sampo
+
+EXPORTS
+    SampoStart

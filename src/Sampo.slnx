@@ -1,7 +1,7 @@
 <Solution>
   <Configurations>
-    <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="Sampo/Sampo.vcxproj" />
+  <Project Path="Sampo/Sampo.vcxproj" Id="75489ae4-45ad-4abb-9335-1c30defc0b09" />
+  <Project Path="winmm/winmm.vcxproj" Id="680aa5a8-9220-47d7-aef5-780f36316540" />
 </Solution>

@@ -7,10 +7,13 @@
 #include "settings.h"
 #include "steam.h"
 #include "wand.h"
+#include "wand_support.h"
 #include "log.h"
 
 namespace {
-    DWORD WINAPI Initialize(LPVOID) {
+    INIT_ONCE p_started = INIT_ONCE_STATIC_INIT;
+
+    BOOL CALLBACK initialize(PINIT_ONCE, PVOID, PVOID*) {
         sampo::log::write("Initializing Sampo..");
         steam::init();
         settings::init();
@@ -19,18 +22,19 @@ namespace {
         qol_wand_comparison::init();
         mod_manager::init();
         sdl2::init();
-        noita_mainmenu::init(settings::noitaModCheck(), settings::useDefaultBuildText(), settings::useDefaultModsScreen());
-        return 0;
+        const bool wandLoaded = wand_support::load();
+        noita_mainmenu::init(settings::noitaModCheck(), settings::useDefaultBuildText(), settings::useDefaultModsScreen(), !wandLoaded);
+        return TRUE;
     }
+}
+
+extern "C" __declspec(dllexport) void __cdecl SampoStart() {
+    InitOnceExecuteOnce(&p_started, initialize, nullptr, nullptr);
 }
 
 BOOL APIENTRY DllMain( HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpReserved) {
     if (ul_reason_for_call == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hModule);
-        const HANDLE thread = CreateThread(nullptr, 0, Initialize, nullptr, 0, nullptr);
-        if (thread != nullptr) {
-            CloseHandle(thread);
-        }
     }
 
     return TRUE;
